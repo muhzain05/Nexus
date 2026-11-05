@@ -280,9 +280,17 @@ export function frames(size: BhSize, isMono = false): BhSprite[] {
 
 const wrap1 = (x: number) => x - Math.floor(x)
 
+/** The resting frame of each size, built once (reduced motion and animation off draw it on every render). */
+const still = new Map<string, BhSprite>()
+
 /** The frame to draw at `ms`; null is the still frame (idle, reduced motion). */
 export function blackHole(ms: number | null, size: BhSize, speed: BhSpeed = 'slow', isMono = false): BhSprite {
-  if (ms === null || !Number.isFinite(ms)) return drawBlackHole(size, null, isMono)
+  if (ms === null || !Number.isFinite(ms)) {
+    const key = `${size}${isMono ? ':m' : ''}`
+    let f = still.get(key)
+    if (!f) still.set(key, (f = drawBlackHole(size, null, isMono)))
+    return f
+  }
   const f = Math.floor(wrap1(ms / CYCLE_MS[speed]) * FRAMES) % FRAMES
   return frames(size, isMono)[f]!
 }

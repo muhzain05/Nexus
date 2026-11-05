@@ -1,10 +1,13 @@
 import { expect, test } from 'claude-code/testing'
 
-import { O, agentRows, alerts, fitLine, orbitLines, orbitMode, panel, tapeRows, width } from '../hooks/orbitlayout'
+import { blackHole, frames } from '../hooks/blackhole'
+import { O, agentRows, alerts, fitLine, leadPlan, orbitLines, orbitMode, panel, tapeRows, width } from '../hooks/orbitlayout'
 import type { Line } from '../hooks/orbitlayout'
 import { NOW, agent, snap, unreported, withPrefs } from './snap'
 
 const text = (lines: Line[]) => lines.map(l => l.map(g => g.t).join(''))
+/** Terminal cells of a row: wide characters take two, combining marks and joiners none. */
+const displayWidth = (s: string) => [...s].reduce((n, ch) => { const cp = ch.codePointAt(0)!; if (cp === 0x200d || (cp >= 0xfe00 && cp <= 0xfe0f) || (cp >= 0x300 && cp <= 0x36f)) return n; if ((cp >= 0x1100 && cp <= 0x115f) || (cp >= 0x2e80 && cp <= 0xa4cf) || (cp >= 0xac00 && cp <= 0xd7a3) || (cp >= 0xf900 && cp <= 0xfaff) || (cp >= 0xfe30 && cp <= 0xfe6f) || (cp >= 0xff00 && cp <= 0xff60) || (cp >= 0xffe0 && cp <= 0xffe6) || (cp >= 0x1f300 && cp <= 0x1faff) || (cp >= 0x20000 && cp <= 0x3fffd)) return n + 2; return n + 1 }, 0)
 const all = (lines: Line[]) => text(lines).join('\n')
 const WIDTHS = [40, 48, 56, 64, 72, 84, 96, 100, 110, 130, 160]
 // East Asian wide characters and emoji would take two cells: none may appear.
@@ -242,4 +245,72 @@ test('fit to the pane: blank gap rows go first when the dashboard is taller than
   // Compact density is already tight: asking for fewer rows changes nothing.
   const compact = snap({}, withPrefs(['density', 'compact']))
   expect(orbitLines(compact, 80, 10)).toEqual(orbitLines(compact, 80))
+})
+
+test('model text cannot break a row: control characters, bidi overrides and escape sequences become dots', () => {
+  const nasty = 'run \u001b[2Jtests \u202eevil\u0007 \u009b31m done\u2028x'
+  const s = snap({ agents: [agent('n1', 'nexus-test', 1, nasty, 'running', 3, 20, 9000)], log: [{ at: NOW, who: 'test', kind: 'info', text: nasty, detail: '' }] })
+  for (const w of [60, 80, 100, 120]) {
+    const out = all(orbitLines(s, w))
+    expect(out).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/)
+    for (const l of text(orbitLines(s, w))) expect(displayWidth(l)).toBe(w)
+  }
+})
+
+test('double-width and zero-width characters in a task keep every row exactly as wide as the pane', () => {
+  const tasks = ['修复购物车折扣计算并运行所有单元测试，然后报告结果', '🚀 deploy the 🎉 release 🔥 and run the tests', 'e\u0301cole nor\u0301male tests \u200dzwj', 'ｆｕｌｌｗｉｄｔｈ ｔｅｘｔ ｉｎ ａ ｔａｓｋ']
+  for (const task of tasks) {
+    const s = snap({ agents: [agent('w1', 'nexus-grep', 1, task, 'running', 3, 20, 9000), agent('w2', 'nexus-test', 1, task, 'done', 9, 20, 19000)] })
+    for (const w of [60, 80, 100, 120]) for (const l of text(orbitLines(s, w))) expect(displayWidth(l)).toBe(w)
+  }
+  // The state and the time survive a wide task name.
+  const s = snap({ agents: [agent('w1', 'nexus-grep', 1, tasks[0]!, 'running', 3, 20, 95_000)] })
+  expect(text(orbitLines(s, 60)).find(l => l.includes('grep#1'))).toMatch(/running\s+1m 35s/)
+})
+
+test('side-by-side advisor and Council end on the same row, whatever each holds', () => {
+  const s = snap()
+  const lines = text(orbitLines(s, 84))
+  const top = lines.findIndex(l => /┌─ opus 5\.5 advisor.*┌─ Council/.test(l))
+  expect(top).toBeGreaterThan(0)
+  const bottom = lines.findIndex((l, i) => i > top && /└─+╱ └─+╱$/.test(l))
+  expect(bottom).toBeGreaterThan(top)
+  // One bottom edge for both, and nothing but borders and blanks between the two panels' own rows.
+  for (const l of lines.slice(top + 1, bottom)) expect(l).toMatch(/^│.*│ │.*│$/)
+})
+
+test('a long model label in the lead notes keeps the words intact: the picture gives way, not the words', () => {
+  const s = snap({ lead: { ...snap().lead, requested: 'claude-opus-5-5', model: 'claude-sonnet-5-5' } })
+  for (const w of [60, 80, 100, 120]) {
+    const out = all(orbitLines(s, w))
+    expect(out).toMatch(/asked opus 5\.5/)
+    expect(out).toMatch(/answered by sonnet 5\.5/)
+  }
+  // The plan gives the widest word its room: a long word row takes the picture a size down.
+  expect(leadPlan(60, 'comfortable', 'blackhole', 10).size).not.toBeNull()
+  expect(leadPlan(70, 'comfortable', 'blackhole', 22).isBeside).toBe(true)
+  expect(leadPlan(70, 'comfortable', 'blackhole', 40).isBeside).toBe(false)
+})
+
+test('the black hole is the same object each render when still (reduced motion draws it every time)', () => {
+  expect(blackHole(null, 'medium')).toBe(blackHole(null, 'medium'))
+  expect(blackHole(Number.NaN, 'large', 'slow', true)).toBe(blackHole(null, 'large', 'slow', true))
+  expect(blackHole(null, 'medium')).not.toBe(blackHole(null, 'medium', 'slow', true))
+})
+
+test('run count of one black hole frame (how many text nodes the pane draws for it)', () => {
+  // Per-cell colours rarely merge; this pins how many nodes a frame costs so a change that doubles it is noticed.
+  for (const [size, max] of [['small', 130], ['medium', 330], ['large', 700]] as const) {
+    const counts = frames(size).map(f => f.flat().length)
+    expect(Math.max(...counts)).toBeLessThan(max)
+  }
+})
+
+test('Council tokens are N/A when no review reported any, never zero', () => {
+  const full = withPrefs(['telemetry.preset', 'full'])
+  expect(all(orbitLines(snap({}, full), 100))).toMatch(/tokens N\/A/)
+  expect(all(orbitLines(snap({}, full), 100))).not.toMatch(/tokens in 0/)
+  const s = snap({}, full)
+  s.council.reviewers.security = { ...s.council.reviewers.security, tokens: { input: 12_000, output: 800, cacheRead: 0, cacheWrite: 0 } }
+  expect(all(orbitLines(s, 100))).toMatch(/tokens in 12k out 800/)
 })

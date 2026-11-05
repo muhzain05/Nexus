@@ -5,11 +5,11 @@ const pane = (bodyColumns: number, isFocused = false, placement: 'dock' | 'inlin
   ({ plugin: 'nexus', component: 'Pane', requestId: 'nexus', surface: 'terminal', props: { title: 'NEXUS', isFocused, bodyColumns, placement, scroll: { offset: 0, bodyRows: 46 }, view: {} } }) as const
 
 /** `stored` undefined: a first run (an empty store). */
-function engine(on: On, stored?: Record<string, unknown>, unreadable = false) {
+function engine(on: On, stored?: Record<string, unknown>, unreadable = false, env: Record<string, string> = {}) {
   const opened: { id: string; backgroundColor?: string; columns?: number }[] = []
   const saved: Record<string, unknown> = { ...(stored ?? {}) }
   mock.clock(on, { now: 4_000_000 })
-  mock.env(on, { HOME: '/home/test' })
+  mock.env(on, { HOME: '/home/test', ...env })
   on('store.get', (_, e) => (unreadable ? { deny: 'disk busy' } : { value: saved[String(e.key)] }) as any)
   on('store.set', (_, e) => ((saved[String(e.key)] = e.value), { value: undefined }) as any)
   on('settings.read', () => ({ value: { advisorModel: 'opus' } }))
@@ -250,4 +250,26 @@ test('minimal preset hides numbers but keeps agents and a failure in view', asyn
   const t = await texts($, 100)
   expect(t).toMatch(/Subagents/)
   expect(t).not.toMatch(/Activity|Usage|cost/)
+})
+
+test('NO_COLOR draws the black hole in shades, with no colour on any cell; TERM=dumb does too', async ($, on) => {
+  engine(on, undefined, false, { NO_COLOR: '1' })
+  await start($)
+  const ui = await $.ui.mount(pane(100))
+  const rows = (await ui.findAll({ type: 'Text' })).filter((n: any) => /[▀▄░▒▓█]/.test(n.text ?? '') && Array.isArray(n.children))
+  const text = rows.map((n: any) => n.text).join('\n')
+  const cells = rows.flatMap((n: any) => n.children).filter((c: any) => c && typeof c === 'object' && /^[ ▀▄░▒▓█]+$/.test(String(c.children?.[0] ?? '')) && /[▀▄░▒▓█]/.test(String(c.children?.[0])))
+  await ui.unmount()
+  expect(text).toMatch(/[░▒▓█]/)
+  expect(cells.length).toBeGreaterThan(5)
+  for (const c of cells) expect([c.props?.color, c.props?.backgroundColor]).toEqual([undefined, undefined])
+})
+
+test('without NO_COLOR the same pane draws colours', async ($, on) => {
+  engine(on)
+  await start($)
+  const ui = await $.ui.mount(pane(100))
+  const coloured = (await ui.findAll({ type: 'Text' })).filter((n: any) => n.props?.backgroundColor && /▀/.test(String(n.children?.[0] ?? '')))
+  await ui.unmount()
+  expect(coloured.length).toBeGreaterThan(20)
 })

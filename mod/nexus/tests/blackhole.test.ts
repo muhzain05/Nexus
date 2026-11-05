@@ -264,3 +264,18 @@ test('frames are built once per size and the cache costs little', () => {
   for (let i = 0; i < 5000; i++) blackHole(i * 100, 'large')
   expect(performance.now() - t1).toBeLessThan(400)
 })
+
+test('the middle of the horizon is dark, checked without the renderer\'s own geometry', () => {
+  // A fixed block in the middle of the dome, a few pixels clear of the arc and of the disk, in every frame.
+  const blocks: Record<'medium' | 'large', [number, number, number, number]> = { medium: [20, 8, 23, 11], large: [29, 11, 34, 16] }
+  for (const size of ['medium', 'large'] as const) {
+    const [x0, y0, x1, y1] = blocks[size]
+    const { cols } = DIMENSIONS[size]
+    let lit = 0
+    for (const f of [null, 0, 0.2, 0.4, 0.6, 0.8]) {
+      const lv = levels(drawBlackHole(size, f))
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (lv[y * cols + x] !== null) lit++
+    }
+    expect(lit).toBe(0)
+  }
+})

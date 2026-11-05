@@ -89,7 +89,7 @@ export type Usage = {
   compactions: number
 }
 
-/** `settings` uses `ref` for the open section (null = the menu); `activity` is the full tape. */
+/** `settings` uses `ref` for the open section (null = the menu); `activity` is the full tape, and its `ref` is the tape filter (null = all; reopening the tape resets it). */
 export type View = { kind: 'diagram' | 'agent' | 'settings' | 'usage' | 'cache' | 'activity'; ref: string | null }
 
 export type JevDecision = {

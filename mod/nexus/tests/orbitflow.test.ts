@@ -116,6 +116,22 @@ test('connections: the Council at 120 columns marks each reviewer; the running o
   expect(find(out, /├─│ .*performance.*queued/)).toBeTruthy()
 })
 
+test('connections: at 120 columns the advisor and Council link marks sit on the drawn panel rows (advisor first body row, each reviewer in order)', () => {
+  const out = draw('flow-council-120')
+  // A link mark is the glyph between the two columns, on a row whose right side is a panel body row.
+  const linked = out.map((l, i) => ({ l, i })).filter(({ l }) => /├[─▸◂]│/.test(l))
+  // Four links: the advisor's first body row, then the Council's three reviewers.
+  expect(linked).toHaveLength(4)
+  const adv = out.findIndex(l => /advisor/.test(l) && /┌─/.test(l))
+  expect(linked[0]!.i).toBe(adv + 1)
+  expect(linked[0]!.l).toMatch(/├─│ ↳ calls/)
+  const council = out.findIndex(l => /┌─ Council/.test(l))
+  expect(linked.slice(1).map(x => x.i)).toEqual([council + 1, council + 2, council + 3])
+  expect(linked.slice(1).map(x => /↳ (security|architecture|performance)/.exec(x.l)?.[1])).toEqual(['security', 'architecture', 'performance'])
+  // The advisor's own edge row carries the lead's edge (╱╱╱ corner) and no link; the gap row between panels has none.
+  expect(out.slice(adv, adv + 1).join('')).not.toMatch(/├/)
+})
+
 test('connections: stacked layouts draw a line into the advisor and the Council, and give it up when tight', () => {
   const roomy = draw('flow-council-84')
   const i = roomy.findIndex(l => /└─+╱/.test(l))

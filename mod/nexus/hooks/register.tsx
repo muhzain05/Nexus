@@ -802,7 +802,11 @@ async function patchAgent($: EngineInterface, id: string, change: (a: NexusAgent
   await update($, agents, list => list.map(a => (a.id === id ? change(a) : a)))
 }
 
-/** Ends an agent's run once: a later report never reopens or relabels it. */
+/**
+ * Ends an agent's run. A failed or cancelled run is final, and nothing ever returns to running here. The one exception
+ * is a 'done' (from SubagentStop, which says an agent stopped, never how): the turn's own report of an error, a refusal
+ * or an abort may follow and corrects it. A correction adds one tape row, not a second completion pulse.
+ */
 async function finishAgent($: EngineInterface, id: string, status: NexusAgent['status'], reason: string | null) {
   const now = await $.clock.now()
   const agent = (await read($, agents)).find(a => a.id === id)
@@ -812,7 +816,7 @@ async function finishAgent($: EngineInterface, id: string, status: NexusAgent['s
   const isCorrection = agent.status === 'done' && status !== 'done'
   if (agent.status !== 'running' && !isCorrection) return
   await patchAgent($, id, a => ({ ...a, status, reason, endedAt: isCorrection ? (a.endedAt ?? now) : now }))
-  await addFx($, 'done', id)
+  if (!isCorrection) await addFx($, 'done', id)
   await addLog($, {
     ref: id,
     who: who(agent.type),
@@ -2151,7 +2155,10 @@ export const register: Register = (on, options) => {
       // the engine's and names who really sent it. It counts only for an agent we saw call SubagentHandback: an
       // interim message from a running agent is not its result.
       const from = /^<agent-message from="([^"\s]+)"/m.exec(e.text)?.[1]
-      if (from && handedBack.has(from) && !reviewerRoles.has(from)) await markReturned($, a => a.id === from, false)
+      if (from && handedBack.has(from) && !reviewerRoles.has(from)) {
+        handedBack.delete(from)
+        await markReturned($, a => a.id === from, false)
+      }
     }
     // Notes ride on a prompt the model reads: never on a slash command.
     const notes = pendingNotes.length && !e.command && !(e as { agentId?: string }).agentId ? pendingNotes.splice(0) : []
@@ -2342,10 +2349,13 @@ export const register: Register = (on, options) => {
       if (testAgents.size > 200) testAgents.delete(testAgents.values().next().value!)
     }
 
-    // The same spawn arriving twice, or one with no tool_use_id for an agent already known, changes nothing: a
-    // finished agent is never reopened. (A new delegation to a known id has its own tool_use_id and replaces it.)
+    // The same spawn arriving twice changes nothing: the same Agent call (tool_use_id), or, with none given, a repeat
+    // for an agent that is still running. A spawn that names a new call, or reuses a finished agent's id with none,
+    // is a new run of it (a continuation) and starts a fresh record; whatever it handed back before no longer counts.
     const known = (await read($, agents)).find(a => a.id === spawned.agentId)
-    if (known && (e.tool_use_id == null || known.toolUseId === e.tool_use_id)) return spawned
+    const isRepeat = known !== undefined && (e.tool_use_id != null ? known.toolUseId === e.tool_use_id : known.status === 'running')
+    if (isRepeat) return spawned
+    handedBack.delete(spawned.agentId)
 
     const def = await definition($, e.subagentType)
     // A new delegation to a known id replaces that record, so it is not counted among its own type.

@@ -238,7 +238,11 @@ function besideLinked(a: Line[], wa: number, b: Line[], wb: number, links: Map<n
   return out
 }
 
-/** The links from the lead to the advisor and the Council, by row of the right column. */
+/**
+ * The links from the lead to the advisor and the Council, by row of the right column. The rows are the panels' own:
+ * a panel is a top edge, then its body, so the advisor's first body row is 1 and each Council reviewer follows the
+ * Council's title row in the order of ROLES. (orbitflow.test.ts pins these positions against the drawn screens.)
+ */
 function sideLinks(s: Snapshot, advisorRows: number, gapRows: number, hasCouncil: boolean, isStill: boolean): Map<number, Seg> {
   const f = flowOf(s)
   const m = new Map<number, Seg>()
@@ -744,10 +748,11 @@ function build(s: Snapshot, w: number, isRoomy: boolean): Line[] {
     // right column is exactly as tall as it needs to be: if the lead is taller the rest is blank.
     const rightW = Math.max(40, Math.floor(w * 0.36))
     const leftW = w - rightW - 1
-    const right: Line[] = [...advisorPanel(s, rightW)]
+    const adv = advisorPanel(s, rightW)
+    const right: Line[] = [...adv]
     if (showCouncil) right.push(...gap.map(() => blank(rightW)), ...councilPanel(s, rightW))
     const lead = leadPanel(s, leftW, isRoomy)
-    if (s.prefs.agentLinks) out.push(...besideLinked(lead, leftW, right, rightW, sideLinks(s, advisorPanel(s, rightW).length, gap.length, showCouncil, s.reduceMotion || s.prefs.animation === 'off')))
+    if (s.prefs.agentLinks) out.push(...besideLinked(lead, leftW, right, rightW, sideLinks(s, adv.length, gap.length, showCouncil, s.reduceMotion || s.prefs.animation === 'off')))
     else out.push(...beside(lead, leftW, right, rightW))
   } else {
     out.push(...leadPanel(s, w, isRoomy))

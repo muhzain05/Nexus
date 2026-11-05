@@ -147,6 +147,28 @@ test('flow: done by SubagentStop, then a late turn.complete with reason error: f
   expect(failure[0].detail).toBe('the run ended on an error')
 })
 
+test('flow: a late failure after SubagentStop adds one log row and no second done pulse', async ($, on) => {
+  const clock = engine(on)
+  await start($)
+  await spawn($, 'nexus-search', 'maps the api', 'tu1')
+  await clock.advance(1000)
+  await stop($, 'agent-1')
+  const doneFx = () => fxOf($).then(l => l.filter(f => f.kind === 'done' && f.ref === 'agent-1'))
+  const rowsFor = () => logOf($).then(l => l.filter(r => r.ref === 'agent-1'))
+  expect(await doneFx()).toHaveLength(1)
+  const rowsBefore = (await rowsFor()).length
+  await clock.advance(1000)
+  await turnEnd($, 'agent-1', 'error')
+  expect((await one($, 'agent-1')).status).toBe('failed')
+  // Exactly one more tape row (the failure), and still the one completion pulse.
+  expect((await rowsFor()).length).toBe(rowsBefore + 1)
+  expect(await doneFx()).toHaveLength(1)
+  // A run that fails without a stop first still gets its single pulse.
+  await spawn($, 'nexus-grep', 'finds x', 'tu2')
+  await turnEnd($, 'agent-2', 'error')
+  expect((await fxOf($)).filter(f => f.kind === 'done' && f.ref === 'agent-2')).toHaveLength(1)
+})
+
 test('flow: done then a late refusal is failed, and done then a late abort is cancelled', async ($, on) => {
   engine(on)
   await start($)
@@ -196,7 +218,7 @@ test('flow: a done agent is not changed by a later normal turn end; nothing goes
   expect((await logOf($)).length).toBe(JSON.parse(before)[1].length)
 })
 
-test('flow: the same spawn arriving twice does not reset a finished agent', async ($, on) => {
+test('flow: the same spawn (same tool_use_id) arriving twice does not reset a finished agent', async ($, on) => {
   const clock = engine(on)
   await start($)
   await spawn($, 'nexus-search', 'maps the api', 'tu1')
@@ -206,9 +228,8 @@ test('flow: the same spawn arriving twice does not reset a finished agent', asyn
   await agentCall($, 'tu1')
   const before = JSON.stringify([await agentsOf($), await logOf($), await fxOf($)])
   expect((await one($, 'agent-1')).status).toBe('done')
-  // The identical spawn again, and one for the same agent with no tool_use_id at all.
+  // The identical spawn again (the same non-null tool_use_id), even after the agent finished.
   await spawn($, 'nexus-search', 'maps the api', 'tu1', 'agent-1')
-  await spawn($, 'nexus-search', 'maps the api', undefined, 'agent-1')
   expect(JSON.stringify([await agentsOf($), await logOf($), await fxOf($)])).toBe(before)
   const a = await one($, 'agent-1')
   expect(a.status).toBe('done')
@@ -337,6 +358,59 @@ test('flow: a peer message with no SubagentHandback seen, and notices that are n
   expect((await one($, 'agent-1')).returnedAt).toBeNull()
 })
 
+test('flow: a finished agent spawned again with no tool_use_id is a new run: it reopens with a fresh record', async ($, on) => {
+  const clock = engine(on)
+  await start($)
+  await spawn($, 'nexus-search', 'maps the api', 'tu1')
+  await $.tool.call({ tool: 'Read', file_path: '/repo/src/a.ts', agentId: 'agent-1' })
+  await clock.advance(4000)
+  await stop($, 'agent-1')
+  await agentCall($, 'tu1')
+  const first = await one($, 'agent-1')
+  expect(first.status).toBe('done')
+  expect(first.returnedAt).not.toBeNull()
+  await clock.advance(5000)
+  await spawn($, 'nexus-search', 'maps the api again', undefined, 'agent-1')
+  const list = await agentsOf($)
+  expect(list).toHaveLength(1)
+  const again = list[0]
+  expect(again).toMatchObject({ id: 'agent-1', status: 'running', returnedAt: null, returnKind: null, toolUseId: null, steps: 0, tools: 0, endedAt: null, description: 'maps the api again' })
+  expect(again.startedAt).toBeGreaterThan(first.startedAt)
+  expect((await logOf($)).filter(r => r.kind === 'start' && r.ref === 'agent-1')).toHaveLength(2)
+  expect((await fxOf($)).some(f => f.kind === 'spawn' && f.ref === 'agent-1')).toBe(true)
+})
+
+test('flow: a still-running agent spawned again with no tool_use_id is ignored', async ($, on) => {
+  const clock = engine(on)
+  await start($)
+  await spawn($, 'nexus-search', 'maps the api', 'tu1')
+  await $.tool.call({ tool: 'Read', file_path: '/repo/src/a.ts', agentId: 'agent-1' })
+  await clock.advance(1000)
+  const before = JSON.stringify([await agentsOf($), await logOf($), await fxOf($)])
+  await spawn($, 'nexus-search', 'maps the api', undefined, 'agent-1')
+  expect(JSON.stringify([await agentsOf($), await logOf($), await fxOf($)])).toBe(before)
+  const a = await one($, 'agent-1')
+  expect(a).toMatchObject({ status: 'running', toolUseId: 'tu1', tools: 1 })
+  // A running record that never had a tool_use_id is likewise left alone by a repeat with none.
+  await spawn($, 'nexus-grep', 'finds x', undefined, 'agent-2')
+  const b = JSON.stringify(await one($, 'agent-2'))
+  await clock.advance(1000)
+  await spawn($, 'nexus-grep', 'finds x', undefined, 'agent-2')
+  expect(JSON.stringify(await one($, 'agent-2'))).toBe(b)
+  expect(await agentsOf($)).toHaveLength(2)
+})
+
+test('flow: a spawn with a new tool_use_id reopens an agent that is still running too (a new run)', async ($, on) => {
+  const clock = engine(on)
+  await start($)
+  await spawn($, 'nexus-search', 'maps the api', 'tu1')
+  await clock.advance(1000)
+  await spawn($, 'nexus-search', 'maps the ui', 'tu2', 'agent-1')
+  const list = await agentsOf($)
+  expect(list).toHaveLength(1)
+  expect(list[0]).toMatchObject({ status: 'running', toolUseId: 'tu2', description: 'maps the ui' })
+})
+
 /** The engine's own frame for a message from a subagent: the frame at column zero, the sender's words indented. */
 const handoff = (id: string, body: string) => `Another Claude session sent a message:\n<agent-message from="${id}">\n[Subagent hand-back] The report follows:\n${body.replace(/^/gm, '  ')}\n</agent-message>`
 const handBack = ($: any, id: string, result = 'the report') => $.tool.call({ tool: 'SubagentHandback', result, agentId: id } as any)
@@ -367,6 +441,49 @@ test('flow: a peer message at column zero marks a return once, after the agent c
   expect((await one($, 'hb-1')).returnedAt).toBe(at)
   expect(await backRows($)).toHaveLength(1)
   expect(await returns($)).toHaveLength(1)
+})
+
+test('flow: a hand-back counts once: a re-spawn (new tool_use_id) then an interim peer message does not mark it, until the new run hands back', async ($, on) => {
+  engine(on)
+  await start($)
+  await spawn($, 'nexus-grep', 'finds x', 'tu1', 'hb-r1')
+  await handBack($, 'hb-r1')
+  await notice($, 'hb-r1', 'completed', 'peer', handoff('hb-r1', 'first report'))
+  expect((await one($, 'hb-r1')).returnedAt).not.toBeNull()
+  expect(await backRows($)).toHaveLength(1)
+  expect(await returns($)).toHaveLength(1)
+  // The same agent is given a new task: a new run, open again.
+  await spawn($, 'nexus-grep', 'finds y', 'tu2', 'hb-r1')
+  expect((await one($, 'hb-r1')).returnedAt).toBeNull()
+  // An interim message from the new run, before it has called SubagentHandback, is not its result.
+  await notice($, 'hb-r1', 'completed', 'peer', handoff('hb-r1', 'still looking'))
+  expect((await one($, 'hb-r1')).returnedAt).toBeNull()
+  expect(await backRows($)).toHaveLength(1)
+  expect(await returns($)).toHaveLength(1)
+  // Once the new run hands back, its message counts, once.
+  await handBack($, 'hb-r1', 'second report')
+  await notice($, 'hb-r1', 'completed', 'peer', handoff('hb-r1', 'second report'))
+  expect((await one($, 'hb-r1')).returnedAt).not.toBeNull()
+  expect(await backRows($)).toHaveLength(2)
+  expect(await returns($)).toHaveLength(2)
+  await notice($, 'hb-r1', 'completed', 'peer', handoff('hb-r1', 'more'))
+  expect(await backRows($)).toHaveLength(2)
+})
+
+test('flow: a hand-back seen before a re-spawn does not carry over to the new run', async ($, on) => {
+  engine(on)
+  await start($)
+  await spawn($, 'nexus-grep', 'finds x', 'tu1', 'hb-r2')
+  await handBack($, 'hb-r2')
+  // New run before the peer message was delivered: the earlier hand-back is not the new run's.
+  await spawn($, 'nexus-grep', 'finds y', 'tu2', 'hb-r2')
+  await notice($, 'hb-r2', 'completed', 'peer', handoff('hb-r2', 'interim'))
+  expect((await one($, 'hb-r2')).returnedAt).toBeNull()
+  expect(await backRows($)).toHaveLength(0)
+  await handBack($, 'hb-r2')
+  await notice($, 'hb-r2', 'completed', 'peer', handoff('hb-r2', 'the report'))
+  expect((await one($, 'hb-r2')).returnedAt).not.toBeNull()
+  expect(await backRows($)).toHaveLength(1)
 })
 
 test('flow: a peer message marks only the agent it names, and a task-notification after it adds nothing', async ($, on) => {

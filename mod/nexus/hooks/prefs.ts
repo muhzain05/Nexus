@@ -140,7 +140,7 @@ export const SETTINGS: Setting[] = [
   { key: 'council.activation', section: 'agents', label: 'Council mode', options: ['adaptive', 'on', 'off'], help: 'Opus reviewers at a checkpoint: the advisor picks one, all three, or just the single advisor.', kind: 'behavior' },
   { key: 'testRunner', section: 'agents', label: 'Run tests', options: ['allowlist', 'off'], help: 'The Test agent may run known test commands only (allowlist), or nothing (off). On top of Claude Code’s own permissions.', kind: 'behavior' },
   { key: 'escalation', section: 'agents', label: 'Suggest a stronger mode', options: ['ask', 'off'], help: 'ask offers a stronger model mode before a harder task; it never switches by itself.', kind: 'behavior' },
-  
+
   { key: 'telemetry.preset', section: 'usage', label: 'What to show', options: ['minimal', 'standard', 'full', 'custom'], help: 'minimal: status and alerts. standard: plus context, times, routing, usage. full: plus tokens and cost.', kind: 'display' },
   { key: 'telemetry.tokens', section: 'usage', label: 'Show token usage', options: ['on', 'off'], help: 'Tokens per model and agent, as Claude Code reports them.', kind: 'display' },
   { key: 'telemetry.cost', section: 'usage', label: 'Show costs', options: ['on', 'off'], help: 'The session estimate at API prices. Not necessarily what a subscription is charged.', kind: 'display' },

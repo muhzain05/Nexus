@@ -216,6 +216,8 @@ test('the gate names every path argument so the caller can follow symlinks', () 
   expect(pathOf('a/b.rb:12:3')).toBe('a/b.rb')
   expect(pathOf('./...')).toBe('.')
   expect(pathOf('pkg/**')).toBe('pkg')
+  expect(pathOf('spec/a_spec.rb[1:2]')).toBe('spec/a_spec.rb')
+  expect(pathOf('outside-link[1:1]')).toBe('outside-link')
 })
 
 test('fresh review: alternate executables, wrappers and look-alike characters are not test commands', () => {

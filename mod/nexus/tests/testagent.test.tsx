@@ -6,16 +6,17 @@ const pane = { plugin: 'nexus', component: 'Pane', requestId: 'nexus', surface: 
 /** The tool calls that got past NEXUS to the engine, as the engine would have run them. */
 let failPrefs = false
 /** What exists, and where each path really leads: `links` is a symlink table. A path in neither does not exist. */
-const fsWorld: { exists: Set<string>; links: Record<string, string>; unreadable: Set<string>; cwd: string; stats: string[]; failDownstream: boolean } = { exists: new Set(), links: {}, unreadable: new Set(), cwd: '/repo', stats: [], failDownstream: false }
+const fsWorld: { exists: Set<string>; links: Record<string, string>; unreadable: Set<string>; cwd: string; stats: string[]; runs: string[]; failDownstream: boolean } = { exists: new Set(), links: {}, unreadable: new Set(), cwd: '/repo', stats: [], runs: [], failDownstream: false }
 
 function engine(on: On, stored: Record<string, unknown> = {}) {
   const reached: Record<string, unknown>[] = []
   failPrefs = false
-  fsWorld.exists = new Set(['/repo', '/repo/tests', '/repo/tests/test_cart.py', '/repo/src', '/repo/outside-link', '/repo/inside-link', '/etc'])
-  fsWorld.links = { '/repo/outside-link': '/etc', '/repo/inside-link': '/repo/src' }
+  fsWorld.exists = new Set(['/repo', '/repo/tests', '/repo/tests/test_cart.py', '/repo/src', '/repo/outside-link', '/repo/inside-link', '/repo/notes', '/etc'])
+  fsWorld.links = { '/repo/outside-link': '/etc', '/repo/inside-link': '/repo/src', '/repo/notes': '/repo/.env' }
   fsWorld.unreadable = new Set()
   fsWorld.cwd = '/repo'
   fsWorld.stats = []
+  fsWorld.runs = []
   fsWorld.failDownstream = false
   on('session.cwd', () => ({ value: fsWorld.cwd }) as any)
   on('fs.stat', (_, e) => {
@@ -34,7 +35,7 @@ function engine(on: On, stored: Record<string, unknown> = {}) {
   on('session.id', () => ({ value: 's' }))
   on('session.model', () => ({ value: 'claude-sonnet-5-5' }))
   on('config.list', () => ({ value: [] }))
-  on('process.run', () => ({ value: { exitCode: 44, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('process.run', (_, e) => (fsWorld.runs.push(JSON.stringify((e as { argv?: unknown }).argv ?? e)), { value: { exitCode: 44, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
   on('fs.read', () => {
     throw new Error('none')
   })
@@ -383,4 +384,61 @@ test('council round 3: the repository root is stat-ed once, not on every call', 
   await call($, { tool: 'Bash', command: 'pytest tests/test_cart.py -x', agentId: 'agent-1' })
   await call($, { tool: 'Read', file_path: '/repo/tests/test_cart.py', agentId: 'agent-1' })
   expect(fsWorld.stats.filter(p => p === '/repo').length).toBe(1)
+})
+
+test('council round 4: a path starting with ~ is the home directory, not a folder called ~', async ($, on) => {
+  const reached = engine(on)
+  await start($)
+  await spawn($, 'nexus-test', 'tu1')
+  const n = reached.length
+  const as = (input: Record<string, unknown>) => call($, { ...input, agentId: 'agent-1' })
+  expect(denied(await as({ tool: 'Read', file_path: '~/.zsh_history' }))).toMatch(/home directory/)
+  expect(denied(await as({ tool: 'Read', file_path: '~/.aws/config' }))).toMatch(/home directory|secret/)
+  expect(denied(await as({ tool: 'Grep', pattern: 'x', path: '~' }))).toMatch(/home directory/)
+  expect(denied(await as({ tool: 'Glob', pattern: '*', path: '~/projects' }))).toMatch(/home directory/)
+  expect(reached.length).toBe(n)
+})
+
+test('council round 4: a link inside the repository to a secret file is that file', async ($, on) => {
+  const reached = engine(on)
+  await start($)
+  await spawn($, 'nexus-test', 'tu1')
+  const n = reached.length
+  expect(denied(await call($, { tool: 'Read', file_path: 'notes', agentId: 'agent-1' }))).toMatch(/leads to a secret file/)
+  expect(denied(await call($, { tool: 'Bash', command: 'pytest notes', agentId: 'agent-1' }))).toMatch(/leads to a secret file/)
+  expect(reached.length).toBe(n)
+})
+
+test('council round 4: an absolute or ~ place inside the braces of a Glob pattern is refused; an rspec [id] does not hide a link', async ($, on) => {
+  const reached = engine(on)
+  await start($)
+  await spawn($, 'nexus-test', 'tu1')
+  const n = reached.length
+  for (const pattern of ['{/etc,src}/*', '{src,~}/x', 'a,/etc/*', '{x,../y}/*']) expect(denied(await call($, { tool: 'Glob', pattern, agentId: 'agent-1' }))).toMatch(/reaches outside the repository/)
+  expect(denied(await call($, { tool: 'Bash', command: 'rspec "outside-link[1:1]"', agentId: 'agent-1' }))).toMatch(/leads outside the repository/)
+  expect(reached.length).toBe(n)
+})
+
+test('council round 4: outside a git repository the repository lookup is not repeated for every call', async ($, on) => {
+  engine(on)
+  await start($)
+  await spawn($, 'nexus-test', 'tu1')
+  await call($, { tool: 'Read', file_path: '/repo/tests/test_cart.py', agentId: 'agent-1' })
+  const before = fsWorld.runs.length
+  for (let i = 0; i < 4; i++) await call($, { tool: 'Read', file_path: '/repo/tests/test_cart.py', agentId: 'agent-1' })
+  expect(fsWorld.runs.length).toBe(before)
+})
+
+test('council round 4: each read tool passes on only the fields it documents', async ($, on) => {
+  const reached = engine(on)
+  await start($)
+  await spawn($, 'nexus-test', 'tu1')
+  await call($, { tool: 'Read', file_path: '/repo/tests/test_cart.py', offset: 3, limit: 10, cwd: '/etc', env: { A: 1 }, agentId: 'agent-1' })
+  expect(reached.at(-1)).toMatchObject({ file_path: '/repo/tests/test_cart.py', offset: 3, limit: 10 })
+  expect(JSON.stringify(reached.at(-1))).not.toMatch(/\/etc|"env"/)
+  await call($, { tool: 'Grep', pattern: 'total', path: 'src', output_mode: 'content', '-i': true, '-n': true, shell: '/bin/sh', agentId: 'agent-1' })
+  expect(reached.at(-1)).toMatchObject({ pattern: 'total', path: 'src', output_mode: 'content', '-i': true })
+  expect(JSON.stringify(reached.at(-1))).not.toMatch(/shell/)
+  await call($, { tool: 'Glob', pattern: 'src/**/*.ts', path: 'src', workdir: '/', agentId: 'agent-1' })
+  expect(JSON.stringify(reached.at(-1))).not.toMatch(/workdir/)
 })

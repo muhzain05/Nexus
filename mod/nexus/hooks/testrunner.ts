@@ -20,7 +20,7 @@ export type Verdict = { ok: true; runner: string; paths: string[] } | { ok: fals
 
 /** A path argument without the test selector after it (`file.py::test`, `file.rb:12`, `pkg/...`). */
 export function pathOf(arg: string): string {
-  return arg.replace(/(::|#).*$/, '').replace(/:\d+(:\d+)?$/, '').replace(/\/\.\.\.$/, '').replace(/\/\*\*?$/, '') || '.'
+  return arg.replace(/(::|#).*$/, '').replace(/\[[^\]]*\]$/, '').replace(/:\d+(:\d+)?$/, '').replace(/\/\.\.\.$/, '').replace(/\/\*\*?$/, '') || '.'
 }
 
 /** Tests never run longer than this, whatever the agent asks for (ms). */
@@ -32,6 +32,14 @@ export const ALLOWED_TOOLS = ['Read', 'Glob', 'Grep', 'Bash', 'SubagentHandback'
 
 /** The only fields of a Bash call that reach the engine (its identity, the command and its description); NEXUS adds the capped timeout and the foreground flag itself. */
 export const BASH_FIELDS: ReadonlySet<string> = new Set(['tool', 'agentId', 'tool_use_id', 'command', 'description'])
+
+/** The fields each read tool documents; anything else the agent sent is not passed on. */
+const IDENTITY = ['tool', 'agentId', 'tool_use_id']
+export const TOOL_FIELDS: Record<string, ReadonlySet<string>> = {
+  Read: new Set([...IDENTITY, 'file_path', 'offset', 'limit']),
+  Glob: new Set([...IDENTITY, 'pattern', 'path']),
+  Grep: new Set([...IDENTITY, 'pattern', 'path', 'glob', 'type', 'output_mode', '-i', '-n', '-A', '-B', '-C', 'context', 'multiline', 'head_limit', 'offset']),
+}
 
 /** Bash input fields that would loosen a sandbox or a permission (or claim an approval): dropped from the call, so the agent cannot widen what it may do through the call's own fields. */
 export const LOOSENING = /sandbox|dangerous|disable|unsafe|bypass|permission|allow|approv|override|elevat|trust|skip|unrestrict/i

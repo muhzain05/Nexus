@@ -69,7 +69,7 @@ import {
   within,
 } from './council'
 import type { PathCtx, Snapshot as ReviewSnapshot } from './council'
-import { ALLOWED_TOOLS as TEST_TOOLS, BASH_FIELDS, LOOSENING, cappedTimeout, judgeCommand, parseReport, reportLine } from './testrunner'
+import { ALLOWED_TOOLS as TEST_TOOLS, BASH_FIELDS, LOOSENING, TOOL_FIELDS, cappedTimeout, judgeCommand, parseReport, reportLine } from './testrunner'
 import { AboutView, HelpView, NEXUS_VERSION, OutputView, aboutText, helpText } from './docs'
 import { DEFAULT_PREFS, PANE_MAX, SECTIONS, SETTINGS, defaultValue, exportPrefs, migrate, prefValue, resetAll, resetSection, resolveLayout, setPref } from './prefs'
 import type { SectionId } from './prefs'
@@ -1283,12 +1283,18 @@ const testAgents = new Set<string>()
  * if no part of it can be found the answer is no.
  */
 async function pathProblemAt($: EngineInterface, arg: string, base: string, realRoot: string): Promise<string | null> {
+  // The file tools expand a leading `~` to the home directory; a path walk would read it as a folder called `~`.
+  if (arg.startsWith('~')) return `${arg} is outside the repository (the home directory)`
   let dir = normalizePath(arg, base)
   // A path has at most a few hundred segments (a command is capped at 400 characters): the walk always ends.
   for (let hops = 0; hops < 512; hops++) {
     const real = await realOf($, dir)
     if (real === UNRESOLVED) return `NEXUS could not tell where ${arg} leads`
-    if (real !== null) return within(real, realRoot) ? null : `${arg} leads outside the repository (through a symlink or its own location)`
+    if (real !== null) {
+      if (!within(real, realRoot)) return `${arg} leads outside the repository (through a symlink or its own location)`
+      // Where it really lands counts too: a link inside the repository to a secret file is still that file.
+      return isSecretPath(real) ? `${arg} leads to a secret file` : null
+    }
     if (dir === '/') break
     dir = dir.slice(0, Math.max(1, dir.lastIndexOf('/')))
   }
@@ -1341,8 +1347,11 @@ async function testGate($: EngineInterface, e: Record<string, unknown> & { tool:
     if (out) return refuse(out)
   }
   // A Glob pattern can name a place outside the repository on its own.
-  if (name === 'Glob' && typeof e.pattern === 'string' && (/^[/~]/.test(e.pattern) || /(^|[/{,])\.\.([/},]|$)/.test(e.pattern))) return refuse(`the pattern ${e.pattern.slice(0, 60)} reaches outside the repository`)
-  return { input: (name === 'Grep' ? { ...e, glob: guardGrepGlob(e.glob) } : e) as never }
+  if (name === 'Glob' && typeof e.pattern === 'string' && (/(^|[{,])[/~]/.test(e.pattern) || /(^|[/{,])\.\.([/},]|$)/.test(e.pattern))) return refuse(`the pattern ${e.pattern.slice(0, 60)} reaches outside the repository`)
+  // Each read tool passes on only the fields it documents, as Bash does.
+  const allowed = TOOL_FIELDS[name]
+  const kept = allowed ? Object.fromEntries(Object.entries(e).filter(([k]) => allowed.has(k) && !LOOSENING.test(k))) : e
+  return { input: (name === 'Grep' ? { ...kept, glob: guardGrepGlob(e.glob) } : kept) as never }
 }
 
 /** Whether an agent runs as the Test agent: remembered at spawn, else read from the agents list. */
@@ -1398,12 +1407,22 @@ async function repoRoot($: EngineInterface, from?: string): Promise<string> {
 }
 
 /** The top level of the repository `dir` is in, or null when it is in none (git says so, or cannot be run). */
+/** Directories that were not in a repository, and when that was seen: not asked again for a short while. */
+const notRepos = new Map<string, number>()
+const NOT_REPO_MS = 30_000
+
 async function repoTop($: EngineInterface, dir: string): Promise<string | null> {
   const known = topLevels.get(dir)
   if (known) return known
+  const seen = notRepos.get(dir)
+  if (seen !== undefined && (await $.clock.now()) - seen < NOT_REPO_MS) return null
   const r = await git($, ['git', 'rev-parse', '--show-toplevel'], dir, 5_000).catch(() => null)
   const top = r?.exitCode === 0 ? r.stdout.trim() : ''
-  if (!top) return null
+  if (!top) {
+    notRepos.set(dir, await $.clock.now())
+    capMap(notRepos, 20)
+    return null
+  }
   topLevels.set(dir, top)
   capMap(topLevels, 20)
   return top
@@ -2435,10 +2454,17 @@ export const register: Register = (on, options) => {
     const out = await next(e)
     if (e.id === PANE) {
       // Only a pane the engine actually seated is drawn: an unplaced or denied open leaves no timer running.
-      // (a result may come wrapped as `{ value }` or bare, depending on who answered below)
-      const placed = ((out as { value?: unknown }).value ?? out) as { isPlaced?: boolean; deny?: unknown }
-      isPaneOpen = !('deny' in out && out.deny) && !placed.deny && placed.isPlaced !== false
-      if (isPaneOpen) animate($)
+      // (A result may come wrapped as `{ value }` or bare, depending on who answered below; anything odd reads as "not placed".)
+      let isSeated = false
+      try {
+        const bare = out && typeof out === 'object' ? (out as Record<string, unknown>) : {}
+        const placed = (bare.value && typeof bare.value === 'object' ? bare.value : bare) as { isPlaced?: unknown; deny?: unknown }
+        isSeated = !bare.deny && !placed.deny && placed.isPlaced !== false
+      } catch {
+        isSeated = false
+      }
+      isPaneOpen = isSeated
+      if (isSeated) animate($)
       else {
         timer?.cancel()
         timer = null

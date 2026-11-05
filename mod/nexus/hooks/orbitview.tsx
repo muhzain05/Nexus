@@ -16,7 +16,7 @@ function Row({ el, line, id }: { el: El; line: Line; id: string }) {
   return (
     <Text key={id}>
       {line.map((g, i) => (
-        <Text key={`${id}-${i}`} color={g.c} bold={g.b}>
+        <Text key={`${id}-${i}`} color={g.c} backgroundColor={g.bg} bold={g.b}>
           {g.t}
         </Text>
       ))}

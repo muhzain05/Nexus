@@ -31,7 +31,7 @@ async function texts($: any, width: number, isFocused = false, placement: 'dock'
   await ui.unmount()
   return out
 }
-const hole = (t: string) => (t.match(/[⠀-⣿]/g) ?? []).length
+const hole = (t: string) => (t.match(/[▀▄]/g) ?? []).length
 
 test('a first run opens Orbit with the black hole; a store from v0.7 stays on Classic', async ($, on) => {
   const e = engine(on)
@@ -39,7 +39,7 @@ test('a first run opens Orbit with the black hole; a store from v0.7 stays on Cl
   const orbit = await texts($, 100)
   expect(orbit).toMatch(/Lead session/)
   expect(orbit).toMatch(/NEXUS/)
-  expect(hole(orbit)).toBeGreaterThan(100)
+  expect(hole(orbit)).toBeGreaterThan(40)
   // The pane opens with Orbit's near-black background.
   expect(e.opened.at(-1)?.backgroundColor).toBe('#0a0b0f')
 })
@@ -69,11 +69,11 @@ test('every pane width draws: wide to narrow, and a list when it is too small', 
 test('the black hole can be switched: classic orbit, off, and back; theme switching is live and saved', async ($, on) => {
   const e = engine(on)
   await start($)
-  expect(hole(await texts($, 100))).toBeGreaterThan(100)
+  expect(hole(await texts($, 100))).toBeGreaterThan(40)
   expect(await run($, 'settings centerpiece off')).toMatch(/centerpiece → off \(saved for later sessions\)/)
   expect(hole(await texts($, 100))).toBe(0)
   await run($, 'settings centerpiece blackhole')
-  expect(hole(await texts($, 100))).toBeGreaterThan(100)
+  expect(hole(await texts($, 100))).toBeGreaterThan(40)
   const before = e.opened.length
   await run($, 'settings theme classic')
   expect(await texts($, 120)).toMatch(/main session/)

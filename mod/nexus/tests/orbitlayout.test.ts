@@ -27,19 +27,21 @@ test('only single-cell glyphs: no wide characters, so a column is a cell', () =>
 })
 
 test('layout modes: wide beside, stacked, narrow; compact forces stacking', () => {
-  expect(orbitMode(100, 'auto')).toBe('wide')
+  expect(orbitMode(120, 'auto')).toBe('wide')
+  expect(orbitMode(112, 'auto')).toBe('wide')
+  expect(orbitMode(100, 'auto')).toBe('stacked')
   expect(orbitMode(84, 'auto')).toBe('stacked')
   expect(orbitMode(60, 'auto')).toBe('narrow')
   expect(orbitMode(120, 'compact')).toBe('stacked')
   // Wide has the lead and the advisor on the same row; stacked does not.
-  const wide = text(orbitLines(snap(), 100)).find(l => l.includes('Lead session'))!
+  const wide = text(orbitLines(snap(), 120)).find(l => l.includes('Lead session'))!
   expect(wide).toMatch(/advisor/)
   expect(text(orbitLines(snap(), 80)).find(l => l.includes('Lead session'))).not.toMatch(/advisor/)
 })
 
 test('the lead centrepiece: black hole by default, the classic orbit, or none', () => {
-  const braille = (p: ReturnType<typeof withPrefs>) => (all(orbitLines(snap({}, p), 100)).match(/[⠀-⣿]/g) ?? []).length
-  expect(braille(withPrefs())).toBeGreaterThan(150)
+  const braille = (p: ReturnType<typeof withPrefs>) => (all(orbitLines(snap({}, p), 100)).match(/[▀▄]/g) ?? []).length
+  expect(braille(withPrefs())).toBeGreaterThan(60)
   expect(braille(withPrefs(['centerpiece', 'off']))).toBe(0)
   const classic = all(orbitLines(snap({}, withPrefs(['centerpiece', 'classic'])), 100))
   expect(classic).toMatch(/[∙●]/)
@@ -52,24 +54,28 @@ test('density: compact is shorter than comfortable', () => {
   expect(orbitLines(snap({}, withPrefs(['density', 'compact'])), 100).length).toBeLessThan(orbitLines(snap(), 100).length)
 })
 
+/** The black hole's cells with their colours, as one string: what actually changes from frame to frame. */
+const holeLook = (lines: Line[]) => lines.flatMap(l => l.filter(g => /[▀▄]/.test(g.t)).map(g => `${g.t}|${g.c ?? ''}|${g.bg ?? ''}`)).join('\n')
+
 test('the black hole moves with the clock and holds still under reduced motion', () => {
-  // Only the black hole's own cells: the header's clock moves whatever the graphic does.
-  const at = (now: number, reduce: boolean) => (all(orbitLines(snap({ now, reduceMotion: reduce }), 100)).match(/[\u2800-\u28ff ]{20,}/g) ?? []).join('|')
+  const at = (now: number, reduce: boolean) => holeLook(orbitLines(snap({ now, reduceMotion: reduce }), 100))
   expect(at(NOW, false)).not.toBe(at(NOW + 12_000, false))
   expect(at(NOW, true)).toBe(at(NOW + 12_000, true))
   const off = withPrefs(['animation', 'off'])
-  const holeOf = (now: number) => (all(orbitLines(snap({ now }, off), 100)).match(/[\u2800-\u28ff ]{20,}/g) ?? []).join('|')
-  expect(holeOf(NOW)).toBe(holeOf(NOW + 12_000))
+  expect(holeLook(orbitLines(snap({ now: NOW }, off), 100))).toBe(holeLook(orbitLines(snap({ now: NOW + 12_000 }, off), 100)))
+  // Only colours move: the shapes (which cells are half blocks) are the same at any time.
+  const shape = (now: number) => text(orbitLines(snap({ now }), 100)).join('\n').replace(/[^▀▄\n ]/g, ' ')
+  expect(shape(NOW)).toBe(shape(NOW + 9_000))
 })
 
 test('animation speed: very slow changes less over the same time', () => {
-  const diff = (speed: string) => {
+  const changed = (speed: string) => {
     const p = withPrefs(['animationSpeed', speed])
-    const a = text(orbitLines(snap({ now: NOW }, p), 100))
-    const b = text(orbitLines(snap({ now: NOW + 4_000 }, p), 100))
-    return a.reduce((n, row, i) => n + [...row].filter((ch, c) => ch !== [...b[i]!][c]).length, 0)
+    const a = holeLook(orbitLines(snap({ now: NOW }, p), 100)).split('\n')
+    const b = holeLook(orbitLines(snap({ now: NOW + 4_000 }, p), 100)).split('\n')
+    return a.filter((row, i) => row !== b[i]).length
   }
-  expect(diff('veryslow')).toBeLessThan(diff('slow'))
+  expect(changed('veryslow')).toBeLessThan(changed('slow'))
 })
 
 test('a long task name gives way; the state and the time never do', () => {

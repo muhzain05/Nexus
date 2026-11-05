@@ -6,7 +6,8 @@
 //
 // Only narrow glyphs are used (box drawing, braille, geometric shapes), so a cell is a column.
 import type { LogRow, NexusAgent } from '../types'
-import { blackHole } from './blackhole'
+import { DIMENSIONS, blackHole, sizeFor } from './blackhole'
+import type { BhSize } from './blackhole'
 import { councilTokens, ROLES, ROLE_LABEL } from './council'
 import { clock, compact, elapsed, modelLabel } from './format'
 import { coreOrbit } from './orbit'
@@ -15,7 +16,7 @@ import { freshness, limitLabel, orderLimits, resetLabel, tone as usageTone, usd 
 import type { Snapshot } from './views'
 import { advisorLabel, haikuModel, isWorking, modeName } from './views'
 
-export type Seg = { t: string; c?: string; b?: boolean; flex?: boolean }
+export type Seg = { t: string; c?: string; bg?: string; b?: boolean; flex?: boolean }
 export type Line = Seg[]
 
 /** Orbit's palette: near-black, a warm orange for Sonnet, electric blue Haiku, muted lavender Opus, mint Jev. */
@@ -151,9 +152,14 @@ function spinner(s: Snapshot): string {
   return s.reduceMotion ? '●' : SPIN[Math.floor(s.now / 250) % SPIN.length]!
 }
 
-/** Rows of tone runs (the black hole's or the classic orbit's) as coloured lines. */
+/** Rows of tone runs (the classic orbit's) as coloured lines. */
 function spriteLines(sprite: { text: string; tone: string }[][], colour: Record<string, string>): Line[] {
   return sprite.map(r => r.map(x => ({ t: x.text, c: colour[x.tone] || undefined })))
+}
+
+/** The black hole's rows, each cell with its own pixel colours. */
+function holeLines(rows: { text: string; fg?: string; bg?: string }[][]): Line[] {
+  return rows.map(r => r.map(x => ({ t: x.text, c: x.fg, bg: x.bg })))
 }
 
 // ---- alerts: failures and limits, shown whatever the preset ------------------------------
@@ -199,60 +205,92 @@ export function header(s: Snapshot, w: number): Line[] {
 // ---- lead ----------------------------------------------------------------------------------
 const EFFORT = ['low', 'medium', 'high', 'xhigh', 'max']
 
-/** The black hole's size for the room it has: wide and short, never more than the pane gives. */
-export function holeSize(inner: number, isComfortable: boolean, maxRows = 12): { cols: number; rows: number } {
-  const cols = Math.max(24, Math.min(inner, isComfortable ? 64 : 52))
-  const rows = Math.max(6, Math.min(maxRows, Math.round(cols * (isComfortable ? 0.19 : 0.15))))
-  return { cols, rows }
-}
-
-function leadPanel(s: Snapshot, w: number, minHeight?: number, maxHole = 12): Line[] {
-  const inner = w - 4
-  const comfortable = s.prefs.density === 'comfortable'
-  const rows: Line[] = []
+/** Sonnet's words, as rows: who, what it does, effort, and the state with its clock. Never cut by width. */
+function leadText(s: Snapshot): Line[] {
   const effort = s.lead.effort ?? 'N/A'
   const level = EFFORT.indexOf(effort) + 1
-  const model = modelLabel(s.lead.model)
-  const cp = s.prefs.centerpiece
-  if (comfortable) rows.push([])
-  if (cp === 'blackhole') {
-    const { cols, rows: r } = holeSize(inner, comfortable, maxHole)
-    const ms = s.reduceMotion || s.prefs.animation === 'off' ? null : s.now
-    for (const l of spriteLines(blackHole(ms, cols, r, s.prefs.animationSpeed), O.hole)) rows.push(centre(l, inner))
-  } else if (cp === 'classic') {
-    const working = isWorking(s) && !s.reduceMotion
-    const col = { core: O.sonnet, sat: O.sonnetHi, trail: O.sonnet, faint: O.faint }
-    for (const l of spriteLines(coreOrbit(working ? s.now - (s.lead.turnStartedAt ?? s.now) : null), col)) rows.push(centre(l, inner))
-  }
-  if (comfortable) rows.push([])
-  rows.push(centre([seg(model, O.sonnet, true), seg('  main session', O.dim)], inner))
-  rows.push(centre([seg('edits + runs tests', O.soft)], inner))
-  rows.push(centre([seg('effort ', O.soft), seg('▮'.repeat(Math.max(0, level)), O.sonnet), seg('▯'.repeat(Math.max(0, 5 - level)), O.faint), seg(` ${effort}`, O.sonnet)], inner))
+  const rows: Line[] = [
+    [seg(modelLabel(s.lead.model), O.sonnet, true)],
+    [seg('main session', O.dim)],
+    [],
+    [seg('edits + runs tests', O.soft)],
+    [seg('effort ', O.soft), seg('▮'.repeat(Math.max(0, level)), O.sonnet), seg('▯'.repeat(Math.max(0, 5 - level)), O.faint), seg(` ${effort}`, O.sonnet)],
+    s.lead.turnStartedAt === null
+      ? [seg(`idle · ${s.lead.steps} steps`, O.dim)]
+      : s.lead.isWaiting
+        ? [seg('◌ waiting for you', O.amber)]
+        : [seg(`${spinner(s)} working ${elapsed(s.now - s.lead.turnStartedAt)}`, O.sonnet)],
+  ]
   const asked = s.lead.requested
-  if (asked !== null && s.lead.model !== null && modelLabel(asked) !== modelLabel(s.lead.model)) rows.push(centre([seg(`asked ${modelLabel(asked)} · answered by ${modelLabel(s.lead.model)}`, O.amber)], inner))
-  if (s.mode.relaunch) rows.push(centre([seg('advisor change waits for a relaunch', O.amber)], inner))
-  rows.push(
-    centre(
-      s.lead.turnStartedAt === null
-        ? [seg(`idle · ${s.lead.steps} steps`, O.dim)]
-        : s.lead.isWaiting
-          ? [seg('◌ waiting for you', O.amber)]
-          : [seg(`${spinner(s)} working ${elapsed(s.now - s.lead.turnStartedAt)}`, O.sonnet)],
-      inner,
-    ),
-  )
-  if (comfortable) rows.push([])
-  return panel({ title: 'Lead session', titleColor: O.sonnet, edge: O.edge.lead, width: w, rows, accent: true, tag: [seg('▸ main', O.dim)], minHeight })
+  if (asked !== null && s.lead.model !== null && modelLabel(asked) !== modelLabel(s.lead.model)) rows.push([seg(`asked ${modelLabel(asked)}`, O.amber)], [seg(`answered by ${modelLabel(s.lead.model)}`, O.amber)])
+  if (s.mode.relaunch) rows.push([seg('advisor change waits', O.amber)], [seg('for a relaunch', O.amber)])
+  return rows
+}
+
+/** Which composition the lead panel draws, and whether the words sit beside it, for `inner` columns. */
+export function leadPlan(inner: number, density: 'comfortable' | 'compact', graphic: Snapshot['prefs']['centerpiece']): { size: BhSize | null; isBeside: boolean } {
+  if (graphic !== 'blackhole') return { size: null, isBeside: false }
+  const rowsOk = density === 'compact' ? 7 : 10
+  // Words are at most 20 cells; a composition beside them needs its own width plus a 3-cell gutter.
+  for (const size of ['large', 'medium', 'small'] as const) {
+    if (density === 'compact' && size === 'large') continue
+    if (DIMENSIONS[size].rows > Math.max(rowsOk, 7) + (size === 'large' ? 4 : 0)) continue
+    if (inner >= DIMENSIONS[size].cols + 3 + 20 && (size !== 'large' || inner >= 96)) return { size, isBeside: true }
+  }
+  // Too narrow to sit beside the words: the smallest composition above them, if it fits at all.
+  return { size: inner >= DIMENSIONS.small.cols ? 'small' : null, isBeside: false }
+}
+
+function leadPanel(s: Snapshot, w: number): Line[] {
+  const inner = w - 4
+  const comfortable = s.prefs.density === 'comfortable'
+  const plan = leadPlan(inner, s.prefs.density, s.prefs.centerpiece)
+  const rows: Line[] = []
+  const ms = s.reduceMotion || s.prefs.animation === 'off' ? null : s.now
+  const art: Line[] =
+    plan.size !== null
+      ? holeLines(blackHole(ms, plan.size, s.prefs.animationSpeed, s.isMono === true))
+      : s.prefs.centerpiece === 'classic'
+        ? spriteLines(coreOrbit(isWorking(s) && !s.reduceMotion ? s.now - (s.lead.turnStartedAt ?? s.now) : null), { core: O.sonnet, sat: O.sonnetHi, trail: O.sonnet, faint: O.faint })
+        : []
+  const text = leadText(s)
+  if (plan.isBeside) {
+    // The words sit in a column at the right of the picture, centred on it, and the pair is centred in the panel.
+    const artW = DIMENSIONS[plan.size!].cols
+    const textW = Math.max(...text.map(width))
+    const group = artW + 3 + textW
+    const left = Math.max(0, Math.floor((inner - group) / 2))
+    const h = Math.max(art.length, text.length)
+    const top = Math.floor((h - text.length) / 2)
+    for (let i = 0; i < h; i++) {
+      const a = art[i] ?? [{ t: ' '.repeat(artW) }]
+      const t = text[i - top] ?? []
+      rows.push([{ t: ' '.repeat(left) }, ...fitLine(a, artW), { t: '   ' }, ...t])
+    }
+  } else {
+    // Narrow: the picture above, the words under it in a few centred lines.
+    for (const l of art) rows.push(centre(l, inner))
+    if (art.length) rows.push([])
+    for (const l of [text[0]!, text[3]!, text[4]!, text[5]!, ...text.slice(6)]) rows.push(centre(l, inner))
+  }
+  if (comfortable) {
+    rows.unshift([])
+    rows.push([])
+  }
+  return panel({ title: 'Lead session', titleColor: O.sonnet, edge: O.edge.lead, width: w, rows, accent: true, tag: [seg('▸ main', O.dim)] })
 }
 
 // ---- advisor and council ------------------------------------------------------------------
 function advisorPanel(s: Snapshot, w: number): Line[] {
   const a = s.advisor
+  const v = visibility(s.prefs)
   const rows: Line[] = []
   const lastLabel = a.lastAt === null ? 'not yet consulted' : `last ${elapsed(s.now - a.lastAt)} ago`
   rows.push([seg('↳ ', O.dim), seg(`calls ${a.calls}`, O.soft), seg('  ·  ', O.faint), flex(lastLabel, O.soft)])
   const c = s.prefs.council.activation
   rows.push([seg('↳ ', O.dim), seg('council ', O.soft), seg(c === 'off' ? 'off' : c === 'on' ? 'all three' : 'adaptive', c === 'on' ? O.amber : O.opus)])
+  // What the last consultation read and how long it took, as Claude Code reported it; nothing when it never ran.
+  if (a.calls > 0 && v.times) rows.push([seg('↳ ', O.dim), seg(`read ${compact(a.contextAtCall)} ctx`, O.soft), seg('  ·  ', O.faint), seg(a.lastMs === null ? 'time N/A' : `took ${elapsed(a.lastMs)}`, O.soft)])
   return panel({ title: `${advisorLabel(s)} advisor`, titleColor: O.opus, edge: O.edge.advisor, width: w, rows, accent: true })
 }
 
@@ -276,13 +314,13 @@ function councilState(s: Snapshot, r: (typeof ROLES)[number]): { text: string; c
   }
 }
 
-function councilPanel(s: Snapshot, w: number, minHeight?: number): Line[] {
+function councilPanel(s: Snapshot, w: number): Line[] {
   const v = visibility(s.prefs)
   const mode = s.prefs.council.activation
   const rows: Line[] = []
   if (mode === 'off') {
     rows.push([seg('off · the single advisor reviews', O.dim)])
-    return panel({ title: 'Council', titleColor: O.opus, edge: O.edge.council, width: w, rows, minHeight })
+    return panel({ title: 'Council', titleColor: O.opus, edge: O.edge.council, width: w, rows })
   }
   const authorized = ROLES.filter(r => s.council.reviewers[r].status !== 'idle')
   const done = authorized.filter(r => s.council.reviewers[r].status === 'done').length
@@ -298,7 +336,7 @@ function councilPanel(s: Snapshot, w: number, minHeight?: number): Line[] {
     rows.push([seg(`tokens in ${compact(t.input)} out ${compact(t.output)}`, O.dim)])
   }
   const tag: Line = authorized.length ? [seg(done === authorized.length ? '✓ ' : '', O.green), seg(`${done}/${authorized.length}`, done === authorized.length ? O.green : O.soft)] : [seg(mode, O.dim)]
-  return panel({ title: 'Council', titleColor: O.opus, edge: O.edge.council, width: w, rows, tag, minHeight })
+  return panel({ title: 'Council', titleColor: O.opus, edge: O.edge.council, width: w, rows, tag })
 }
 
 // ---- jev -----------------------------------------------------------------------------------
@@ -355,23 +393,19 @@ function haikuPanel(s: Snapshot, w: number, maxRows: number): Line[] {
   const running = s.agents.filter(a => a.status === 'running').length
   const { shown, hidden } = agentRows(s.agents, maxRows)
   const rows: Line[] = []
-  const isWide = inner >= 60
-  const barW = isWide ? 8 : 0
+  const labelW = Math.max(8, ...shown.map(a => cells(a.label))) + 1
   for (const a of shown) {
     const col = a.status === 'failed' ? O.red : a.status === 'running' ? O.haikuHi : a.status === 'done' ? O.haiku : O.dim
     const turns = a.maxTurns ? `${a.steps}/${a.maxTurns}` : `${a.steps}`
-    const state = a.status === 'running' ? 'running' : a.status
     const stateCol = a.status === 'failed' ? O.red : a.status === 'done' ? O.green : a.status === 'cancelled' ? O.amber : O.haikuHi
     const dur = v.times ? elapsed((a.endedAt ?? s.now) - a.startedAt) : ''
     const tok = v.tokens ? (a.steps === 0 ? 'N/A' : compact(a.tokens.input + a.tokens.output)) : ''
     const task = a.description || a.prompt || 'N/A'
-    const left: Line = [seg(a.status === 'running' ? `${spinner(s)} ` : `${STATUS_GLYPH[a.status]} `, col), seg(a.label.padEnd(10), O.fg, true), flex(task, O.soft)]
-    if (barW) left.splice(2, 0, seg(' '))
-    const right: Line = []
-    if (barW && a.maxTurns) right.push(seg(meter(Math.min(1, a.steps / a.maxTurns), barW), O.haiku), seg(' '))
-    right.push(seg(`${turns} turns`.padStart(barW ? 11 : 0), O.soft), seg(`  ${state}`, stateCol))
-    if (dur) right.push(seg(`  ${dur}`, O.soft))
-    if (tok) right.push(seg(`  ${tok} tok`, O.dim))
+    // Columns that line up from row to row: mark, name, task (the one that shrinks), turns, state, time, tokens.
+    const left: Line = [seg(a.status === 'running' ? `${spinner(s)} ` : `${STATUS_GLYPH[a.status]} `, col), seg(a.label.padEnd(labelW), O.fg, true), flex(task, O.soft)]
+    const right: Line = [seg(`${turns} turns`.padStart(10), O.soft), seg(`  ${a.status.padEnd(7)}`, stateCol)]
+    if (dur) right.push(seg(`  ${dur.padStart(6)}`, O.soft))
+    if (tok) right.push(seg(`  ${tok.padStart(5)} tok`, O.dim))
     rows.push(lr(left, right, inner))
   }
   if (hidden > 0) rows.push([seg(`+${hidden} more · ctrl+x tab, then 1-9 to inspect`, O.dim)])
@@ -471,58 +505,59 @@ export function keysLine(s: Snapshot, w: number, isFocused: boolean): Line {
 // ---- the whole dashboard ------------------------------------------------------------------
 export type Mode = 'wide' | 'stacked' | 'narrow'
 
-/** wide: lead beside the advisor and council; stacked: one column with room; narrow: one column, trimmed. */
+/**
+ * wide: the lead beside the advisor and Council; stacked: one column, the advisor and Council side
+ * by side below the lead; narrow: one column, everything trimmed. Wide starts at 112 columns so the
+ * lead keeps room for the medium picture and its words (about 68 columns).
+ */
 export function orbitMode(w: number, layout: 'auto' | 'full' | 'compact' | 'minimal'): Mode {
   if (layout === 'compact') return w >= 72 ? 'stacked' : 'narrow'
-  if (w >= 96) return 'wide'
+  if (w >= 112) return 'wide'
   return w >= 68 ? 'stacked' : 'narrow'
 }
 
 export function orbitLines(s: Snapshot, w: number): Line[] {
   const v = visibility(s.prefs)
   const mode = orbitMode(w, s.prefs.layout)
+  // One blank row between groups (none when compact): always the same, never more.
   const gap = s.prefs.density === 'comfortable' ? [blank(w)] : []
   const out: Line[] = [...header(s, w)]
-  for (const a of alerts(s)) out.push(fitLine([seg('! ', a.colour, true), flex(a.text, a.colour)], w))
+  const warn = alerts(s)
+  for (const a of warn) out.push(fitLine([seg('! ', a.colour, true), flex(a.text, a.colour)], w))
   out.push(...gap)
 
-  // main
   const hasJev = v.routing && s.prefs.jev !== 'hidden'
+  const showCouncil = v.routing
   if (mode === 'wide') {
-    const rightW = Math.max(36, Math.floor(w * 0.38))
+    // The lead at the left, the advisor over the Council at the right, one blank row between. The
+    // right column is exactly as tall as it needs to be: if the lead is taller the rest is blank.
+    const rightW = Math.max(40, Math.floor(w * 0.36))
     const leftW = w - rightW - 1
-    const parts = [advisorPanel(s, rightW), ...(v.routing ? [councilPanel(s, rightW)] : []), ...(hasJev ? [jevPanel(s, rightW)] : [])]
-    const left = leadPanel(s, leftW)
-    // The right column has fewer rows than the lead: the spare rows become even gaps between its panels.
-    const spare = Math.max(0, left.length - parts.reduce((n, p) => n + p.length, 0))
-    const gaps = Math.max(1, parts.length - 1)
-    const right: Line[] = []
-    parts.forEach((p, i) => {
-      right.push(...p)
-      if (i < parts.length - 1) for (let k = 0; k < Math.floor(spare / gaps) + (i < spare % gaps ? 1 : 0); k++) right.push(blank(rightW))
-    })
-    out.push(...beside(left, leftW, right, rightW))
+    const right: Line[] = [...advisorPanel(s, rightW)]
+    if (showCouncil) right.push(...gap.map(() => blank(rightW)), ...councilPanel(s, rightW))
+    out.push(...beside(leadPanel(s, leftW), leftW, right, rightW))
   } else {
-    out.push(...leadPanel(s, w, undefined, mode === 'narrow' ? 8 : 10))
-    out.push(...advisorPanel(s, w))
-    if (v.routing) out.push(...councilPanel(s, w))
+    out.push(...leadPanel(s, w))
+    if (mode === 'stacked' && w >= 76 && showCouncil) {
+      // Advisor and Council side by side, the same width each, the same height.
+      const aw = Math.floor((w - 1) / 2)
+      const cw = w - aw - 1
+      const adv = advisorPanel(s, aw)
+      const cou = councilPanel(s, cw)
+      out.push(...gap, ...beside(adv, aw, cou, cw))
+    } else {
+      out.push(...gap, ...advisorPanel(s, w))
+      if (showCouncil) out.push(...gap, ...councilPanel(s, w))
+    }
   }
   out.push(...gap)
-
-  if (mode !== 'wide' && hasJev) {
-    out.push(...jevPanel(s, w))
-    out.push(...gap)
-  }
+  if (hasJev) out.push(...jevPanel(s, w), ...gap)
   out.push(...haikuPanel(s, w, mode === 'narrow' ? 4 : 6))
   const n = Math.min(s.prefs.logRows, v.activity ? 6 : 0)
-  if (v.activity && n > 0) {
-    out.push(...gap)
-    out.push(...tapePanel(s, w, n))
-  }
+  if (v.activity && n > 0) out.push(...gap, ...tapePanel(s, w, n))
   const usage = usagePanel(s, w)
   if (usage.length) out.push(...gap, ...usage)
   return out
 }
-
 
 export const ORBIT_BG = O.bg

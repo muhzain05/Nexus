@@ -186,8 +186,8 @@ export const LOG_KEEP = 50
 
 const PANE = 'nexus'
 const PANE_OPEN = { id: PANE, title: 'NEXUS', columns: 92, backgroundColor: C.bg }
-/** Orbit redraws the black hole about four times a second while something runs; Classic's effects use ten. */
-const ORBIT_FRAME_MS = 250
+/** Orbit redraws every 400 ms while something runs: the black hole has 60 frames in 24 s, so a faster timer would only repeat a frame. Classic's effects use ten a second. */
+const ORBIT_FRAME_MS = 400
 /** 10 frames a second while an effect plays; 1 under reduced motion (counters only). */
 const FRAME_MS = 100
 const STILL_MS = 1000
@@ -203,6 +203,10 @@ let isReduced = false
 let isMotionOff = false
 /** The Orbit theme is chosen: slower frames, since its motion is slow. Mirrors prefs.theme. */
 let orbitTheme = false
+/** The terminal asked for no colour (NO_COLOR or TERM=dumb): the black hole draws in shades. */
+let isMono = false
+/** The NEXUS pane is open. While it is closed nothing is drawn, so no frame timer runs. */
+let isPaneOpen = true
 let cwd = ''
 let home = ''
 let sessionId = ''
@@ -238,7 +242,7 @@ async function addFx($: EngineInterface, kind: Fx['kind'], ref: string | null, m
 
 // One timer, only while something on screen changes with time; none when idle.
 function animate($: EngineInterface) {
-  if (isMotionOff) {
+  if (isMotionOff || !isPaneOpen) {
     timer?.cancel()
     timer = null
     return
@@ -280,7 +284,7 @@ async function snapshot($: EngineInterface): Promise<Snapshot> {
     read($, council),
     $.clock.now(),
   ])
-  return { lead: l, advisor: a, agents: list, jev: j, log: rows, mode: m, fx: f, reduceMotion: r, tick: t, view: v, prefs: pr, usage: us, models: md, guard: gd, council: cn, keptWidth, now }
+  return { lead: l, advisor: a, agents: list, jev: j, log: rows, mode: m, fx: f, reduceMotion: r, tick: t, view: v, prefs: pr, usage: us, models: md, guard: gd, council: cn, isMono, keptWidth, now }
 }
 
 /** Re-reads Claude Code's own usage figures: free (no breakdown asked), no request is made. */
@@ -1944,6 +1948,8 @@ export const register: Register = (on, options) => {
       await update($, council, x => ({ ...x, checkpoint: x.checkpoint && { ...x.checkpoint, status: 'partial' as const, reason: 'NEXUS was reloaded during this review, so it could not be merged', endedAt: now } }))
     }
     home = (await $.env.get('HOME')) ?? ''
+    isMono = Boolean(await $.env.get('NO_COLOR')) || (await $.env.get('TERM')) === 'dumb'
+    isPaneOpen = true
     sessionId = await $.session.id()
     jevKey = await loadJevKey($)
     const [sessionAdvisor, sessionModel] = await Promise.all([setting($, 'advisorModel'), $.session.model()])
@@ -2197,6 +2203,9 @@ export const register: Register = (on, options) => {
 
   on('session.end', async ($, e, next) => {
     cancelGuard()
+    // Nothing animates after the session ends.
+    timer?.cancel()
+    timer = null
     await update($, guard, (g): Guard => (g.status === 'OFF' ? g : { ...g, status: 'OFF', reason: 'session ended', nextAt: null }))
     return next(e)
   }).catch(($, e, next) => next(e))
@@ -2368,6 +2377,25 @@ export const register: Register = (on, options) => {
     }
     return ran
   }).catch(($, e, next) => next(e)) // an observer never holds up the engine
+
+  // ---- the pane's life: no frame timer runs while nothing is drawn ----------
+  on('ui.open', async ($, e, next) => {
+    const out = await next(e)
+    if (e.id === PANE && !('deny' in out && out.deny) && (out as { isPlaced?: boolean }).isPlaced !== false) {
+      isPaneOpen = true
+      animate($)
+    }
+    return out
+  }).catch(($, e, next) => next(e))
+  on('ui.close', async ($, e, next) => {
+    const out = await next(e)
+    if (e.id === PANE) {
+      isPaneOpen = false
+      timer?.cancel()
+      timer = null
+    }
+    return out
+  }).catch(($, e, next) => next(e))
 
   // ---- drawing (terminal only: other surfaces keep their own look) --------
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {

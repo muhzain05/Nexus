@@ -76,19 +76,32 @@ async function text($: any, width = 100): Promise<string> {
   await ui.unmount()
   return found.map((n: any) => n.text ?? '').join('\n')
 }
-const hole = (t: string) => (t.match(/[\u2800-\u28ff]+/g) ?? []).join('|')
+/** The black hole as drawn, with colours: the cell text and each cell's colours. Colour is all that moves. */
+async function holeLook($: any, width = 100): Promise<string> {
+  const ui = await $.ui.mount(pane(width))
+  const rows = (await ui.findAll({ type: 'Text' })).filter((n: any) => /[▀▄]/.test(n.text ?? '') && Array.isArray(n.children) && n.children.some((c: any) => c && typeof c === 'object'))
+  await ui.unmount()
+  return rows
+    .map((n: any) =>
+      (n.children as any[])
+        .filter(c => c && typeof c === 'object' && /[▀▄]/.test(String(c.children?.[0] ?? '')))
+        .map(c => `${c.props?.color ?? ''}/${c.props?.backgroundColor ?? ''}/${c.children?.[0] ?? ''}`)
+        .join(','),
+    )
+    .join('\n')
+}
 const finish = ($: any) => $.turn.complete({ turnId: 't1', answer: '', durationMs: 2000, isAborted: false, reason: 'answer' })
 
-test('Orbit: about four redraws a second while the lead works, and none when it stops', async ($, on) => {
+test('Orbit: about two and a half redraws a second while the lead works, and none when it stops', async ($, on) => {
   const clock = engine(on)
   await start($)
   const t0 = reads
   await $.turn.start({ text: 'go', turnId: 't1' })
   await clock.advance(4000)
   const during = reads - t0
-  // 4 a second, against Classic's 10: the black hole drifts, it does not need more.
-  expect(during).toBeGreaterThanOrEqual(14)
-  expect(during).toBeLessThanOrEqual(18)
+  // 2.5 a second (60 frames in 24 s), against Classic's 10: a faster timer would only repeat a frame.
+  expect(during).toBeGreaterThanOrEqual(9)
+  expect(during).toBeLessThanOrEqual(11)
   await finish($)
   await clock.advance(5000) // the last log rows are no longer fresh
   const idle = reads
@@ -109,16 +122,18 @@ test('Orbit: the black hole moves while work runs and stands still afterwards', 
   const clock = engine(on)
   await start($)
   await $.turn.start({ text: 'go', turnId: 't1' })
-  const a = hole(await text($))
+  const a = await holeLook($)
   await clock.advance(6000)
-  const b = hole(await text($))
+  const b = await holeLook($)
+  expect(a.length).toBeGreaterThan(100)
   expect(a).not.toBe(b)
   await finish($)
   await clock.advance(5000)
-  const c = hole(await text($))
+  const c = await holeLook($)
+  const idle = reads
   await clock.advance(10_000)
-  // Re-drawn later with no timer running: drawn from the clock, but nothing redraws it by itself.
-  expect(reads).toBeGreaterThan(0)
+  // Nothing redraws it by itself once the work is over.
+  expect(reads).toBe(idle)
   expect(c.length).toBeGreaterThan(100)
 })
 
@@ -127,10 +142,10 @@ test('Orbit: reduced motion draws one still hole and redraws at most once a seco
   await start($)
   const t0 = reads
   await $.turn.start({ text: 'go', turnId: 't1' })
-  const a = hole(await text($))
+  const a = await holeLook($)
   await clock.advance(5000)
   expect(reads - t0).toBeLessThanOrEqual(7)
-  expect(hole(await text($))).toBe(a)
+  expect(await holeLook($)).toBe(a)
 })
 
 test('Orbit: animation off runs no timer at all, and the hole is still', async ($, on) => {
@@ -138,20 +153,20 @@ test('Orbit: animation off runs no timer at all, and the hole is still', async (
   await start($)
   const t0 = reads
   await $.turn.start({ text: 'go', turnId: 't1' })
-  const a = hole(await text($))
+  const a = await holeLook($)
   await clock.advance(10_000)
   expect(reads).toBe(t0)
-  expect(hole(await text($))).toBe(a)
+  expect(await holeLook($)).toBe(a)
 })
 
 test('Orbit: with the graphic off nothing but the text changes, and the timer is the same', async ($, on) => {
   const clock = engine(on, { prefs: { centerpiece: 'off' } })
   await start($)
   await $.turn.start({ text: 'go', turnId: 't1' })
-  expect(hole(await text($))).toBe('')
+  expect(await holeLook($)).toBe('')
   const t0 = reads
   await clock.advance(2000)
-  expect(reads - t0).toBeLessThanOrEqual(9)
+  expect(reads - t0).toBeLessThanOrEqual(6)
 })
 
 test('Classic keeps its own ten frames a second', async ($, on) => {

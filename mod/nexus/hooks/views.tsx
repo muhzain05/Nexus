@@ -48,6 +48,8 @@ export type Snapshot = {
   models: Record<string, ModelRow>
   guard: Guard
   council: Council
+  /** The terminal asked for no colour (NO_COLOR or TERM=dumb): the black hole draws in shades, not colours. */
+  isMono?: boolean
   /** A width the person set by hand, which Claude Code keeps over any request. */
   keptWidth?: number | null
   now: number

@@ -50,13 +50,21 @@ export function charWidth(cp: number): number {
   ) return 2
   return 1
 }
+/** The cells a character adds after `prev`: a symbol followed by the emoji selector (U+FE0F) is one two-cell emoji, so the selector adds the second cell. */
+function step(cp: number, prev: number, prevWidth: number): number {
+  if (cp === 0xfe0f) return prev >= 0x2190 && prev <= 0x2bff && prevWidth === 1 ? 1 : 0
+  return charWidth(cp)
+}
 export const cells = (t: string) => {
   let n = 0
-  const chars = [...t]
-  for (let i = 0; i < chars.length; i++) {
-    const cp = chars[i]!.codePointAt(0)!
-    // A symbol followed by the emoji selector (U+FE0F) is drawn as a two-cell emoji.
-    n += chars[i + 1] === '\ufe0f' && cp >= 0x2190 && cp <= 0x2bff ? 2 : charWidth(cp)
+  let prev = 0
+  let prevWidth = 0
+  for (const ch of t) {
+    const cp = ch.codePointAt(0)!
+    const w = step(cp, prev, prevWidth)
+    n += w
+    prev = cp
+    prevWidth = w
   }
   return n
 }
@@ -71,13 +79,26 @@ const cut = (t: string, n: number) => {
   if (n <= 0) return ''
   if (cells(t) <= n) return t
   if (n === 1) return '…'
-  let out = ''
-  let w = 0
+  // Characters with the width each adds; an emoji selector joins its symbol so the pair is kept or dropped together.
+  const items: { text: string; w: number }[] = []
+  let prev = 0
+  let prevWidth = 0
   for (const ch of t) {
-    const cw = charWidth(ch.codePointAt(0)!)
-    if (w + cw > n - 1) break
-    out += ch
-    w += cw
+    const cp = ch.codePointAt(0)!
+    const w = step(cp, prev, prevWidth)
+    if (cp === 0xfe0f && items.length) {
+      items[items.length - 1]!.text += ch
+      items[items.length - 1]!.w += w
+    } else items.push({ text: ch, w })
+    prev = cp
+    prevWidth = w
+  }
+  let out = ''
+  let used = 0
+  for (const it of items) {
+    if (used + it.w > n - 1) break
+    out += it.text
+    used += it.w
   }
   return `${out}…`
 }

@@ -340,3 +340,13 @@ test('the left-to-right and right-to-left marks are cleaned too; plain text is u
   const plain = snap({ agents: [agent('b2', 'nexus-test', 1, 'run the tests, e.g. “quoted” – dash', 'running', 1, 20, 1000)] })
   expect(all(orbitLines(plain, 100))).toMatch(/run the tests, e\.g\. “quoted” – dash/)
 })
+
+test('trimming agrees with measuring: a row cut to a width is never wider, even through an emoji selector', () => {
+  const flexSeg = (t: string) => [{ t, flex: true }]
+  for (const [t, w] of [['ab☀️cd', 4], ['ab☀️cd', 5], ['☀️☀️☀️☀️', 5], ['修复🚀购物车', 7], ['a🎉b🎉c🎉d', 6], ['e\u0301e\u0301e\u0301', 2], ['⭐️⭐️⭐️', 3]] as const) {
+    const line = fitLine(flexSeg(t), w)
+    expect(width(line)).toBe(w)
+  }
+  expect(width(fitLine(flexSeg('ab☀️cd'), 4))).toBe(4)
+  expect(cells('ab☀️')).toBe(4)
+})

@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { ALLOWED_TOOLS, pathOf, DEFAULT_TIMEOUT_MS, LOOSENING, MAX_TIMEOUT_MS, cappedTimeout, judgeCommand, parseReport, reportLine, words } from '../hooks/testrunner'
+import { ALLOWED_TOOLS, globReachesOutside, pathOf, DEFAULT_TIMEOUT_MS, LOOSENING, MAX_TIMEOUT_MS, cappedTimeout, judgeCommand, parseReport, reportLine, words } from '../hooks/testrunner'
 
 const ok = (c: string) => expect(judgeCommand(c)).toMatchObject({ ok: true })
 const no = (c: unknown, why?: RegExp) => {
@@ -208,9 +208,9 @@ test('the gate names every path argument so the caller can follow symlinks', () 
   // Each argument is named as written and without its selector, so a link named like a selector is still resolved.
   expect(paths('pytest tests/test_cart.py::test_total -x')).toEqual(['tests/test_cart.py::test_total', 'tests/test_cart.py'])
   expect(paths('rspec spec/cart_spec.rb:12')).toEqual(['spec/cart_spec.rb:12', 'spec/cart_spec.rb'])
-  expect(paths('go test ./pkg/... ./cmd')).toEqual(['./pkg/...', './pkg', './cmd', './cmd'])
-  expect(paths('python3 -m unittest discover -s tests -v')).toEqual(['tests', 'tests'])
-  expect(paths('npm test src/cart.test.ts')).toEqual(['src/cart.test.ts', 'src/cart.test.ts'])
+  expect(paths('go test ./pkg/... ./cmd')).toEqual(['./pkg/...', './pkg', './cmd'])
+  expect(paths('python3 -m unittest discover -s tests -v')).toEqual(['tests'])
+  expect(paths('npm test src/cart.test.ts')).toEqual(['src/cart.test.ts'])
   expect(paths('make test')).toEqual([])
   expect(paths('jest')).toEqual([])
   expect(pathOf('a/b.py::c')).toBe('a/b.py')
@@ -260,4 +260,13 @@ test('fresh review: a repeated or reordered flag is judged each time', () => {
 
 test('fresh review: no word can set an environment variable, wherever it sits', () => {
   for (const c of ['make test FOO=bar', 'pytest FOO=bar', 'npm test FOO=bar', 'go test FOO=bar ./...', 'rake test A=1', 'cargo test X=1', 'mvn test A=b', 'gradle test -PX=1', 'gradle test -Dorg.gradle.jvmargs=x', 'mvn test -DargLine=-javaagent:evil.jar', 'mvn test -Dtest=A -DargLine=x', 'dotnet test -p:X=1', 'pytest --env=A=b', 'jest --globals {}', 'jest --testEnvironment=./evil.js', 'jest --setupFilesAfterEach=x', 'jest --reporters=./evil.js', 'jest --runner=./evil.js']) no(c)
+})
+
+test('Glob patterns: a literal run that starts a path may not reach outside; allowed shapes stay allowed', () => {
+  for (const p of ['/etc/*', '~/x', '../x/*', 'a/../b', '{/etc,src}/*', '{src,~}/x', 'a,/etc/*', '{x,../y}/*', '@(/etc)/*', '+(~)/x', '@(..)/x', 'a|/etc/*', '!(src|/etc)/*', '*(/etc)/x', '?(..)/x', 'src/{a,..}/x', '..*', '*/..', '{..,a}/b', 'x/(../y)']) {
+    expect(globReachesOutside(p)).toBe(true)
+  }
+  for (const p of ['*.ts', '**/*.ts', 'src/**/*.{ts,tsx}', '{src,lib}/**/*.py', 'a/(b|c)/d', 'tests/test_*.py', '**/node_modules/**', 'src/[a-z]*.js', '!(*.test).ts', 'docs/**/README.md', 'file.with..dots.txt', '.hidden/*', 'a/{b,c}/d']) {
+    expect(globReachesOutside(p)).toBe(false)
+  }
 })

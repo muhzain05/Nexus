@@ -69,7 +69,7 @@ import {
   within,
 } from './council'
 import type { PathCtx, Snapshot as ReviewSnapshot } from './council'
-import { ALLOWED_TOOLS as TEST_TOOLS, BASH_FIELDS, LOOSENING, TOOL_FIELDS, cappedTimeout, judgeCommand, parseReport, reportLine } from './testrunner'
+import { ALLOWED_TOOLS as TEST_TOOLS, BASH_FIELDS, LOOSENING, TOOL_FIELDS, cappedTimeout, globReachesOutside, judgeCommand, parseReport, reportLine } from './testrunner'
 import { AboutView, HelpView, NEXUS_VERSION, OutputView, aboutText, helpText } from './docs'
 import { DEFAULT_PREFS, PANE_MAX, SECTIONS, SETTINGS, defaultValue, exportPrefs, migrate, prefValue, resetAll, resetSection, resolveLayout, setPref } from './prefs'
 import type { SectionId } from './prefs'
@@ -1347,7 +1347,7 @@ async function testGate($: EngineInterface, e: Record<string, unknown> & { tool:
     if (out) return refuse(out)
   }
   // A Glob pattern can name a place outside the repository on its own.
-  if (name === 'Glob' && typeof e.pattern === 'string' && (/(^|[{,(|])[/~]/.test(e.pattern) || /(^|[/{,(|])\.\.([/},)|]|$)/.test(e.pattern))) return refuse(`the pattern ${e.pattern.slice(0, 60)} reaches outside the repository`)
+  if (name === 'Glob' && typeof e.pattern === 'string' && globReachesOutside(e.pattern)) return refuse(`the pattern ${e.pattern.slice(0, 60)} reaches outside the repository`)
   // Each read tool passes on only the fields it documents, as Bash does.
   const allowed = TOOL_FIELDS[name]
   const kept = allowed ? Object.fromEntries(Object.entries(e).filter(([k]) => allowed.has(k) && !LOOSENING.test(k))) : e
@@ -1419,8 +1419,9 @@ async function repoTop($: EngineInterface, dir: string): Promise<string | null> 
   const r = await git($, ['git', 'rev-parse', '--show-toplevel'], dir, 5_000).catch(() => null)
   const top = r?.exitCode === 0 ? r.stdout.trim() : ''
   if (!top) {
-    // Only git's own answer is remembered. A timeout or a failure to run is not "not a repository": it is asked again.
-    if (r && r.exitCode !== 0 && /not a git repository/i.test(String(r.stderr ?? ''))) {
+    // Only git's own answer is remembered (it exits 128 for "not a repository", in any language). A timeout or a
+    // failure to run is not that: it is asked again.
+    if (r && r.exitCode === 128) {
       notRepos.set(dir, await $.clock.now())
       capMap(notRepos, 20)
     }

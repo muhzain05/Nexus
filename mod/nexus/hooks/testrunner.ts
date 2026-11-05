@@ -19,6 +19,13 @@ import { isSecretPath } from './council'
 export type Verdict = { ok: true; runner: string; paths: string[] } | { ok: false; why: string }
 
 /** A path argument without the test selector after it (`file.py::test`, `file.rb:12`, `pkg/...`). */
+/** Names `arg` as written and, when it differs, without its selector. */
+function addPath(paths: string[], arg: string): void {
+  paths.push(arg)
+  const bare = pathOf(arg)
+  if (bare !== arg) paths.push(bare)
+}
+
 export function pathOf(arg: string): string {
   return arg.replace(/(::|#).*$/, '').replace(/\[[^\]]*\]$/, '').replace(/:\d+(:\d+)?$/, '').replace(/\/\.\.\.$/, '').replace(/\/\*\*?$/, '') || '.'
 }
@@ -253,7 +260,7 @@ function check(spec: Spec, args: Word[], paths: string[]): string | null {
       }
       const bad = valueProblem(kind, value, name)
       if (bad) return bad
-      if (kind === 'path') paths.push(value, pathOf(value))
+      if (kind === 'path') addPath(paths, value)
       continue
     }
     if (spec.goals) {
@@ -264,12 +271,12 @@ function check(spec: Spec, args: Word[], paths: string[]): string | null {
     if (spec.positional !== 'path') return `${w.slice(0, 40)}: this command takes no extra words`
     // A positional word: a path or a test name. Quoting may carry spaces and brackets (a test id); nothing else.
     if (rest[i]!.quoted && /^[A-Za-z0-9_.@%+=,:/ [\]#-]{1,200}$/.test(w) && !/(^|\/)\.\.(\/|$)/.test(w) && !pathProblem(w.replace(/[ [\]#]/g, '_'))) {
-      paths.push(w, pathOf(w))
+      addPath(paths, w)
       continue
     }
     const bad = pathProblem(w)
     if (bad) return bad
-    paths.push(w, pathOf(w))
+    addPath(paths, w)
   }
   if (spec.goals && goals === 0) return `name the target: ${spec.goals.map(g => `\`${g}\``).join(' or ')}`
   return null
@@ -341,4 +348,26 @@ export function reportLine(label: string, rep: Report): string {
   if (rep.result === null) return `${label} finished · no result line in its report`
   const counts = [rep.failed !== null ? `${rep.failed} failed` : null, rep.passed !== null ? `${rep.passed} passed` : null, rep.skipped ? `${rep.skipped} skipped` : null].filter(Boolean)
   return `${label} ${rep.result}${counts.length ? ` · ${counts.join(', ')}` : ''}`
+}
+
+// ---- Glob patterns -------------------------------------------------------------------------------
+const GLOB_SPECIAL = '{}(),|!@+*?[]'
+/**
+ * Whether a Glob pattern can name a place outside the repository on its own. The pattern is split into the literal
+ * runs between glob characters; a run that starts a path (the pattern's start, or right after `{ ( , |`) may not begin
+ * with `/` or `~`, and no run may hold a `..` part. Checking the runs, not a list of spellings, means a new glob
+ * syntax cannot hide one.
+ */
+export function globReachesOutside(pattern: string): boolean {
+  let run = ''
+  let before = '^'
+  const outside = () => ((before === '^' || '{(,|'.includes(before)) && (run.startsWith('/') || run.startsWith('~'))) || run.split('/').includes('..')
+  for (const ch of pattern) {
+    if (GLOB_SPECIAL.includes(ch)) {
+      if (outside()) return true
+      run = ''
+      before = ch
+    } else run += ch
+  }
+  return outside()
 }

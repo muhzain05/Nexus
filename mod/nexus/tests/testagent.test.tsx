@@ -39,7 +39,8 @@ function engine(on: On, stored: Record<string, unknown> = {}) {
   on('process.run', (_, e) => {
     fsWorld.runs.push(JSON.stringify((e as { argv?: unknown }).argv ?? e))
     // git's own answer outside a repository, or a failure that says nothing about one (a timeout).
-    const stderr = fsWorld.git === 'notrepo' ? 'fatal: not a git repository (or any of the parent directories): .git' : ''
+    // (translated: the exit code, not the words, is what counts)
+    const stderr = fsWorld.git === 'notrepo' ? 'fatal: kein Git-Repository (oder irgendein Elternverzeichnis): .git' : ''
     return { value: { exitCode: fsWorld.git === 'notrepo' ? 128 : 1, stdout: '', stderr, isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('fs.read', () => {
@@ -458,7 +459,7 @@ test('council round 5: a link whose own name has a selector-like ending is resol
   expect(reached.length).toBe(n)
 })
 
-test('council round 5: only git\'s own "not a repository" is remembered; a failure that says nothing is asked again', async ($, on) => {
+test('council round 5: only git\'s own "not a repository" (exit 128, in any language) is remembered; a failure that says nothing is asked again', async ($, on) => {
   engine(on)
   await start($)
   await spawn($, 'nexus-test', 'tu1')

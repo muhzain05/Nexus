@@ -2451,7 +2451,7 @@ export const register: Register = (on, options) => {
     }
     const layout = e.surface === 'terminal' ? resolveLayout(s.prefs, width, e.props.placement) : 'list'
     if (layout === 'list') return <PaneList el={el} s={s} />
-    if (s.prefs.theme === 'orbit') return <PaneOrbit el={el} s={s} width={width} act={act} />
+    if (s.prefs.theme === 'orbit') return <PaneOrbit el={el} s={s} width={width} act={act} rows={e.props.scroll?.bodyRows} />
     if (layout === 'full') return <PaneFull el={el} s={s} width={width} act={act} />
     return <PaneCompact el={el} s={s} width={width} act={act} />
   })

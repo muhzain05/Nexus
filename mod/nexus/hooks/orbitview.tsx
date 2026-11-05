@@ -255,7 +255,7 @@ function ActivityView({ el, s, act, width }: { el: El; s: Snapshot; act: Actions
 }
 
 // ---- the pane ---------------------------------------------------------------------------------
-export function PaneOrbit({ el, s, width, act }: { el: El; s: Snapshot; width: number; act: Actions }) {
+export function PaneOrbit({ el, s, width, act, rows }: { el: El; s: Snapshot; width: number; act: Actions; rows?: number }) {
   const { Box } = el
   const head = <Rows el={el} lines={header(s, width).map(l => fitLine(l, width))} id="oh" />
   if (s.view.kind === 'settings') {
@@ -285,7 +285,7 @@ export function PaneOrbit({ el, s, width, act }: { el: El; s: Snapshot; width: n
   // The header is part of orbitLines: draw the rest of the dashboard from it.
   return (
     <Box flexDirection="column" width={width}>
-      <Rows el={el} lines={orbitLines(s, width)} id="od" />
+      <Rows el={el} lines={orbitLines(s, width, rows === undefined ? undefined : Math.max(10, rows - 2))} id="od" />
       <Keys el={el} s={s} act={act} width={width} />
     </Box>
   )

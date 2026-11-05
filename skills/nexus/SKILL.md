@@ -31,7 +31,7 @@ claude plugin install nexus@muhzain05 --scope user
 ```
 
 Requirements:
-- **Claude Code with the plugin (mod) API.** NEXUS 0.8.0 is built and tested against Claude Code 2.1.316. The mod API is early access, so after a Claude Code update run `/nexus doctor`.
+- **Claude Code with the plugin (mod) API.** NEXUS 0.8.1 is built and tested against Claude Code 2.1.316. The mod API is early access, so after a Claude Code update run `/nexus doctor`.
 - **The fullscreen TUI** (`"tui": "fullscreen"` in Claude Code's settings) for the pane to dock beside the chat. Without it the dashboard sits above the prompt. Don't edit the user's settings file unless they ask; tell them the setting and let them choose.
 - **A terminal:** the dashboard draws in the terminal only, not in IDE or desktop chat views.
 

@@ -225,3 +225,21 @@ test('keyboard hints are never what gets cut: the pane always ends on a hint lin
     expect(last.length).toBeGreaterThan(0)
   }
 })
+
+test('fit to the pane: blank gap rows go first when the dashboard is taller than the pane, never a panel', () => {
+  for (const w of [60, 80, 100, 120]) {
+    const roomy = orbitLines(snap(), w)
+    const blanks = (ls: Line[]) => text(ls).filter(l => l.trim() === '').length
+    // Plenty of height: unchanged. Too little: the gaps are dropped, every panel is still there.
+    expect(orbitLines(snap(), w, 400)).toEqual(roomy)
+    const tight = orbitLines(snap(), w, 10)
+    expect(tight.length).toBeLessThan(roomy.length)
+    expect(blanks(tight)).toBeLessThan(blanks(roomy))
+    for (const title of ['Lead session', 'Subagents', 'Activity', 'Usage']) expect(all(tight)).toContain(title)
+    expect(all(tight)).toMatch(/audit#1/)
+    for (const l of text(tight)) expect([...l].length).toBe(w)
+  }
+  // Compact density is already tight: asking for fewer rows changes nothing.
+  const compact = snap({}, withPrefs(['density', 'compact']))
+  expect(orbitLines(compact, 80, 10)).toEqual(orbitLines(compact, 80))
+})

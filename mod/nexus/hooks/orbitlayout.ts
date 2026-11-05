@@ -241,9 +241,9 @@ export function leadPlan(inner: number, density: 'comfortable' | 'compact', grap
   return { size: inner >= DIMENSIONS.small.cols ? 'small' : null, isBeside: false }
 }
 
-export function leadPanel(s: Snapshot, w: number): Line[] {
+export function leadPanel(s: Snapshot, w: number, isRoomy = s.prefs.density === 'comfortable'): Line[] {
   const inner = w - 4
-  const comfortable = s.prefs.density === 'comfortable'
+  const comfortable = isRoomy
   const plan = leadPlan(inner, s.prefs.density, s.prefs.centerpiece)
   const rows: Line[] = []
   const ms = s.reduceMotion || s.prefs.animation === 'off' ? null : s.now
@@ -409,7 +409,7 @@ function haikuPanel(s: Snapshot, w: number, maxRows: number): Line[] {
     rows.push(lr(left, right, inner))
   }
   if (hidden > 0) rows.push([seg(`+${hidden} more · ctrl+x tab, then 1-9 to inspect`, O.dim)])
-  if (rows.length === 0) rows.push([seg('search  grep  audit  test', O.soft), seg('   idle · none started this session', O.dim)])
+  if (rows.length === 0) rows.push([seg('search  grep  audit  test', O.soft), seg('   idle · none started yet', O.dim)])
   const tag: Line = [seg(running > 0 ? `${running} running` : 'idle', running > 0 ? O.haikuHi : O.dim), seg(`  ${s.agents.length} total`, O.dim)]
   return panel({ title: `Subagents · ${haikuModel(s)}`, titleColor: O.haiku, edge: O.edge.haiku, width: w, rows, tag, accent: true })
 }
@@ -516,11 +516,22 @@ export function orbitMode(w: number, layout: 'auto' | 'full' | 'compact' | 'mini
   return w >= 68 ? 'stacked' : 'narrow'
 }
 
-export function orbitLines(s: Snapshot, w: number): Line[] {
+/**
+ * The dashboard for a pane `w` wide and, when known, `rows` tall. It draws with one blank row between
+ * groups; if that does not fit the pane's height it draws again without them (and without the
+ * lead's padding), so the bottom of the dashboard is never what is cut off.
+ */
+export function orbitLines(s: Snapshot, w: number, rows?: number): Line[] {
+  const roomy = build(s, w, s.prefs.density === 'comfortable')
+  if (rows === undefined || roomy.length <= rows || s.prefs.density !== 'comfortable') return roomy
+  return build(s, w, false)
+}
+
+function build(s: Snapshot, w: number, isRoomy: boolean): Line[] {
   const v = visibility(s.prefs)
   const mode = orbitMode(w, s.prefs.layout)
-  // One blank row between groups (none when compact): always the same, never more.
-  const gap = s.prefs.density === 'comfortable' ? [blank(w)] : []
+  // One blank row between groups (none when tight): always the same, never more.
+  const gap = isRoomy ? [blank(w)] : []
   const out: Line[] = [...header(s, w)]
   const warn = alerts(s)
   for (const a of warn) out.push(fitLine([seg('! ', a.colour, true), flex(a.text, a.colour)], w))
@@ -535,9 +546,9 @@ export function orbitLines(s: Snapshot, w: number): Line[] {
     const leftW = w - rightW - 1
     const right: Line[] = [...advisorPanel(s, rightW)]
     if (showCouncil) right.push(...gap.map(() => blank(rightW)), ...councilPanel(s, rightW))
-    out.push(...beside(leadPanel(s, leftW), leftW, right, rightW))
+    out.push(...beside(leadPanel(s, leftW, isRoomy), leftW, right, rightW))
   } else {
-    out.push(...leadPanel(s, w))
+    out.push(...leadPanel(s, w, isRoomy))
     if (mode === 'stacked' && w >= 76 && showCouncil) {
       // Advisor and Council side by side, the same width each, the same height.
       const aw = Math.floor((w - 1) / 2)

@@ -56,7 +56,13 @@ const delegating = [
 ]
 
 const councilRunning = () => {
-  const s = snap({ fx: [fx('council-out', 'security', 300), fx('advisor', null, 500, 4800)] }, links())
+  // The tape tells the same story as the panel below it: the advisor was consulted, one reviewer is done, one running, one queued.
+  const log: Snapshot['log'] = [
+    { at: NOW - 20_000, who: 'council', kind: 'done', text: 'architecture review · done · 1 finding', detail: '' },
+    { at: NOW - 500, who: 'advisor', kind: 'advisor', text: 'consulted · opus 5.5', detail: '' },
+    { at: NOW - 300, who: 'council', kind: 'start', text: 'security review started', detail: '' },
+  ]
+  const s = snap({ log, fx: [fx('council-out', 'security', 300), fx('advisor', null, 500, 4800)] }, links())
   s.council.reviewers.security = { ...s.council.reviewers.security, status: 'running', startedAt: NOW - 300, endedAt: null, findings: null }
   s.council.reviewers.architecture = { ...s.council.reviewers.architecture, status: 'done', findings: 1 }
   s.council.reviewers.performance = { ...s.council.reviewers.performance, status: 'queued', startedAt: null, endedAt: null, findings: null }

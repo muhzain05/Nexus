@@ -111,10 +111,13 @@ test('settings: four plain sections, each opening its own page', async ($, on) =
   expect(menu).toMatch(/orbit · black hole/)
   // The menu does not list the advanced options.
   expect(menu).not.toMatch(/Cache Guard idle minutes/)
+  expect(menu).not.toMatch(/Agent detail/)
   await run($, 'settings appearance')
   const page = await texts($, 100)
   expect(page).toMatch(/Settings\s*\n?›|Appearance/)
-  for (const t of ['Theme', 'Animation', 'Animation speed', 'Layout width', 'Display density', 'Reduced motion']) expect(page).toContain(t)
+  for (const t of ['Theme', 'Animation', 'Animation speed', 'Layout width', 'Display density', 'Motion']) expect(page).toContain(t)
+  // One layout setting, in Advanced: Appearance is only about look and motion.
+  expect(page).not.toMatch(/Dashboard layout/)
   expect(page).toMatch(/default/)
   await run($, 'settings agents')
   const agents = await texts($, 100)
@@ -122,7 +125,16 @@ test('settings: four plain sections, each opening its own page', async ($, on) =
   expect(agents).toMatch(/Council mode/)
   expect(agents).toMatch(/search · grep · audit · test/)
   expect(agents).toMatch(/Operating mode/)
+  // Only things that change what agents may do are in Agents, and each says so.
+  expect(agents).not.toMatch(/Agent detail/)
+  expect(agents.match(/changes what agents may do/g)?.length).toBe(3)
   await run($, 'settings advanced')
+  const adv = await texts($, 100)
+  expect(adv).toMatch(/Dashboard layout/)
+  // Cache Guard's limits appear only once it is on.
+  expect(adv).not.toMatch(/Cache Guard idle minutes/)
+  expect(adv).toMatch(/Turn Cache Guard on to set its limits/)
+  await run($, 'settings cacheGuard.enabled on')
   expect(await texts($, 100)).toMatch(/Cache Guard idle minutes/)
 })
 

@@ -1,5 +1,6 @@
 // The Orbit theme's pane: the dashboard from orbitlayout.ts, the four-section settings and the
 // full activity tape. Classic's views stay in views.tsx and are untouched.
+import { ON_WARNING } from './council'
 import { clock, pad } from './format'
 import { O, fitLine, header, keysLine, orbitLines, tapeRows } from './orbitlayout'
 import type { Line } from './orbitlayout'
@@ -86,6 +87,7 @@ export function rangeChoices(spec: Setting, current: string, def: string): strin
 export function valueLabel(key: string, v: string): string {
   if (key === 'centerpiece') return { blackhole: 'Black hole', classic: 'Classic orbit', off: 'Off' }[v] ?? v
   if (key === 'animationSpeed') return { slow: 'Slow', veryslow: 'Very slow' }[v] ?? v
+  if (key === 'animation') return { auto: 'Follow Claude Code', full: 'Always animate', reduced: 'Reduced', off: 'Off' }[v] ?? v
   if (key === 'testRunner') return { allowlist: 'Known test commands', off: 'Off' }[v] ?? v
   if (key === 'telemetry.preset') return v.charAt(0).toUpperCase() + v.slice(1)
   return v
@@ -114,7 +116,7 @@ function SettingRow({ el, s, act, spec, width }: { el: El; s: Snapshot; act: Act
           <Text color={O.dim}>{now === def ? '  default' : `  default ${valueLabel(spec.key, def)}`}</Text>
         </Text>
       )}
-      <Text color={O.dim}>  {spec.help}</Text>
+      <Text color={spec.kind === 'behavior' ? O.amber : O.dim}>  {spec.kind === 'behavior' ? '! changes what agents may do · ' : ''}{spec.help}</Text>
     </Box>
   )
 }
@@ -194,7 +196,10 @@ export function OrbitSettings({ el, s, act, width }: { el: El; s: Snapshot; act:
 
   // One section: only its own settings, advanced options never on the main page.
   const t = s.prefs.telemetry
-  const specs = SETTINGS.filter(x => x.section === section.id).filter(x => !(x.key.startsWith('telemetry.') && x.key !== 'telemetry.preset' && t.preset !== 'custom'))
+  // Progressive disclosure: single numbers appear only when they matter (Custom, or Cache Guard on).
+  const specs = SETTINGS.filter(x => x.section === section.id)
+    .filter(x => !(x.key.startsWith('telemetry.') && x.key !== 'telemetry.preset' && t.preset !== 'custom'))
+    .filter(x => !(x.key.startsWith('cacheGuard.') && x.key !== 'cacheGuard.enabled' && !s.prefs.cacheGuard.enabled))
   return (
     <Box flexDirection="column" width={width}>
       <Rows el={el} lines={[[seg('Settings', O.dim), seg(' › ', O.faint), seg(section.title, O.fg, true)], rule]} id="sp" />
@@ -206,6 +211,8 @@ export function OrbitSettings({ el, s, act, width }: { el: El; s: Snapshot; act:
         </Box>
       ))}
       {section.id === 'usage' && t.preset !== 'custom' && <Text color={O.dim}>Choose “custom” above to pick each number yourself.</Text>}
+      {section.id === 'advanced' && !s.prefs.cacheGuard.enabled && <Text color={O.dim}>Turn Cache Guard on to set its limits.</Text>}
+      {section.id === 'agents' && s.prefs.council.activation === 'on' && <Text color={O.amber}>{ON_WARNING}</Text>}
       <Facts el={el} s={s} id={section.id} />
       <Text> </Text>
       <Box columnGap={2}>

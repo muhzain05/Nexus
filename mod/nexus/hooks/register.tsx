@@ -66,6 +66,7 @@ import {
   reviewersFor,
   route,
   verdictText,
+  within,
 } from './council'
 import type { PathCtx, Snapshot as ReviewSnapshot } from './council'
 import { ALLOWED_TOOLS as TEST_TOOLS, LOOSENING, cappedTimeout, judgeCommand, parseReport, reportLine } from './testrunner'
@@ -1276,6 +1277,35 @@ const reviewerEnds = new Map<string, ReviewerEnd>()
 /** Agents running as the Test agent (`nexus-test`): their Bash calls are checked. Bounded; the agents list is a second source. */
 const testAgents = new Set<string>()
 
+/** Why a path argument may not be used (it leads outside the repository, or where it leads cannot be told), or null. */
+async function pathsEscape($: EngineInterface, paths: string[]): Promise<string | null> {
+  const base = await liveCwd($)
+  const root = (await reviewRoot($, base)) ?? base
+  const realRoot = await realOf($, root)
+  if (realRoot === null || realRoot === UNRESOLVED) return 'NEXUS could not tell where the repository is, so no path can be checked'
+  for (const arg of paths) {
+    const target = normalizePath(arg, base)
+    const real = await realOf($, target)
+    if (real === UNRESOLVED) return `NEXUS could not tell where ${arg} leads`
+    if (real !== null && !within(real, realRoot)) return `${arg} leads outside the repository (through a symlink or its own location)`
+    if (real === null) {
+      // Not there (yet): its nearest existing parent decides, so a file under a symlinked folder cannot slip out.
+      if (!within(target, root) && !within(target, realRoot)) return `${arg} is outside the repository`
+      let dir = target
+      for (let hops = 0; hops < 40 && dir.length > 1; hops++) {
+        dir = dir.slice(0, Math.max(1, dir.lastIndexOf('/')))
+        const up = await realOf($, dir)
+        if (up === UNRESOLVED) return `NEXUS could not tell where ${arg} leads`
+        if (up !== null) {
+          if (!within(up, realRoot)) return `${arg} leads outside the repository (through a symlink or its own location)`
+          break
+        }
+      }
+    }
+  }
+  return null
+}
+
 /** What the Test agent's call may do: a refusal with the reason, or the call to run (with our limits). */
 async function testGate($: EngineInterface, e: Record<string, unknown> & { tool: unknown; agentId?: string }): Promise<{ deny: string } | { input: never }> {
   const name = String(e.tool)
@@ -1290,6 +1320,9 @@ async function testGate($: EngineInterface, e: Record<string, unknown> & { tool:
     if ((await read($, prefs)).testRunner === 'off') return refuse('running tests is switched off (Settings → Agents → Run tests)')
     const verdict = judgeCommand(e.command)
     if (!verdict.ok) return refuse(verdict.why)
+    // Every path argument, with symlinks followed, must stay inside the repository the session is in.
+    const escape = await pathsEscape($, verdict.paths)
+    if (escape) return refuse(escape)
     // The call the engine sees: the agent's own fields, minus anything that loosens a sandbox, with our limits.
     const kept = Object.fromEntries(Object.entries(e).filter(([k]) => !LOOSENING.test(k)))
     return { input: { ...kept, timeout: cappedTimeout(e.timeout), run_in_background: false } as never }

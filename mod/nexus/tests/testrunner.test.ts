@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { ALLOWED_TOOLS, DEFAULT_TIMEOUT_MS, LOOSENING, MAX_TIMEOUT_MS, cappedTimeout, judgeCommand, parseReport, reportLine, words } from '../hooks/testrunner'
+import { ALLOWED_TOOLS, pathOf, DEFAULT_TIMEOUT_MS, LOOSENING, MAX_TIMEOUT_MS, cappedTimeout, judgeCommand, parseReport, reportLine, words } from '../hooks/testrunner'
 
 const ok = (c: string) => expect(judgeCommand(c)).toMatchObject({ ok: true })
 const no = (c: unknown, why?: RegExp) => {
@@ -86,7 +86,7 @@ test('the timeout is the agent’s own but never over the cap, and tests never r
 test('the Test agent gets an allowlist of tools, not a list of banned ones', () => {
   expect([...ALLOWED_TOOLS].sort()).toEqual(['Bash', 'Glob', 'Grep', 'Read', 'SubagentHandback'])
   for (const t of ['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Agent', 'Task', 'Skill', 'mcp__slack__send']) expect(ALLOWED_TOOLS as readonly string[]).not.toContain(t)
-  for (const k of ['dangerouslyDisableSandbox', 'sandbox', 'disableSandbox', 'bypassPermissions', 'unsafe']) expect(LOOSENING.test(k)).toBe(true)
+  for (const k of ['dangerouslyDisableSandbox', 'sandbox', 'disableSandbox', 'bypassPermissions', 'unsafe', 'permissionMode', 'allowedTools', 'approved', 'override', 'elevated', 'trusted', 'skipChecks', 'unrestricted']) expect(LOOSENING.test(k)).toBe(true)
   for (const k of ['command', 'timeout', 'description', 'run_in_background', 'tool_use_id']) expect(LOOSENING.test(k)).toBe(false)
 })
 
@@ -198,4 +198,63 @@ test('flag values must be the right kind: numbers, names from a list, plain filt
   no('python3 -m unittest discover -s /etc')
   no('python -c "import os"')
   no('python -m pip install x')
+})
+
+test('the gate names every path argument so the caller can follow symlinks', () => {
+  const paths = (c: string) => {
+    const v = judgeCommand(c)
+    return v.ok ? v.paths : null
+  }
+  expect(paths('pytest tests/test_cart.py::test_total -x')).toEqual(['tests/test_cart.py'])
+  expect(paths('rspec spec/cart_spec.rb:12')).toEqual(['spec/cart_spec.rb'])
+  expect(paths('go test ./pkg/... ./cmd')).toEqual(['./pkg', './cmd'])
+  expect(paths('python3 -m unittest discover -s tests -v')).toEqual(['tests'])
+  expect(paths('npm test src/cart.test.ts')).toEqual(['src/cart.test.ts'])
+  expect(paths('make test')).toEqual([])
+  expect(paths('jest')).toEqual([])
+  expect(pathOf('a/b.py::c')).toBe('a/b.py')
+  expect(pathOf('a/b.rb:12:3')).toBe('a/b.rb')
+  expect(pathOf('./...')).toBe('.')
+  expect(pathOf('pkg/**')).toBe('pkg')
+})
+
+test('fresh review: alternate executables, wrappers and look-alike characters are not test commands', () => {
+  for (const c of [
+    './node_modules/.bin/jest', '/usr/bin/pytest', '/usr/bin/env pytest', 'env pytest', 'command pytest', 'exec pytest', 'nohup pytest', 'time pytest', 'xargs pytest', 'sudo pytest',
+    './pytest', '../bin/pytest', '~/bin/pytest', 'bin/pytest', 'node_modules/.bin/vitest run', 'python3 ./run_tests.py', 'python3 -m pytest.__main__', 'python3 -m http.server', 'node --test', 'node test.js', 'bash tests.sh', 'sh -c pytest',
+    'npm exec jest', 'npm x jest', 'npm run-script test', 'npm run test --prefix ..', 'npm --prefix /tmp test', 'npm test --ignore-scripts=false', 'yarn dlx jest', 'pnpm exec jest', 'pnpm dlx jest', 'pnpm -C ../x test', 'npx --no-install ./evil.js',
+  ]) no(c)
+  // Look-alike and invisible characters: a no-break space is a separator, a Cyrillic or full-width letter is not a runner, a zero-width character makes a different word.
+  no('pytest\u00a0--maxfail=1; id')
+  no('pytest \u2013x')
+  no('p\u0443test')
+  no('pytest tests\u200b/x.py')
+  no('pytest\u2028id')
+  no('ｐｙｔｅｓｔ')
+  no('pytest tests/ｘ.py')
+  no('pytest\u00a0-x', /plain ASCII/)
+  no('pytest\u2028id', /plain ASCII/)
+  no('pytest\u000b-x', /plain ASCII/)
+  no('pytest\u0085-x', /plain ASCII/)
+  ok('pytest\t-x')
+})
+
+test('fresh review: quoting cannot hide a flag, a variable or a second command', () => {
+  for (const c of [`pytest '-p' myplugin`, `pytest "--rootdir=/"`, `pytest '' -x`, `pytest -k ''`, `pytest -k "a" "; id"`, `pytest 'tests; id'`, `pytest "tests" && id`, `go test "-toolexec=x"`, `go test -run "x" -toolexec x`, `'pytest' -x`, `"npm" test`, `npm 'test' --node-options x`, `pytest -k "a b" -k`, `vitest run -t "$HOME"`, `jest -t "a\\b"`]) no(c)
+  ok(`pytest -k "cart and not slow" tests`)
+  ok(`go test -run "TestA|TestB" ./...`)
+})
+
+test('fresh review: a repeated or reordered flag is judged each time', () => {
+  no('pytest -x -p evil')
+  no('pytest -p evil -x')
+  no('pytest -x --maxfail=1 -c other.ini')
+  no('go test -v -v -toolexec=x ./...')
+  no('jest --silent --config=x.json')
+  ok('pytest -x -x -q -q')
+  ok('go test -v -v ./...')
+})
+
+test('fresh review: no word can set an environment variable, wherever it sits', () => {
+  for (const c of ['make test FOO=bar', 'pytest FOO=bar', 'npm test FOO=bar', 'go test FOO=bar ./...', 'rake test A=1', 'cargo test X=1', 'mvn test A=b', 'gradle test -PX=1', 'gradle test -Dorg.gradle.jvmargs=x', 'mvn test -DargLine=-javaagent:evil.jar', 'mvn test -Dtest=A -DargLine=x', 'dotnet test -p:X=1', 'pytest --env=A=b', 'jest --globals {}', 'jest --testEnvironment=./evil.js', 'jest --setupFilesAfterEach=x', 'jest --reporters=./evil.js', 'jest --runner=./evil.js']) no(c)
 })

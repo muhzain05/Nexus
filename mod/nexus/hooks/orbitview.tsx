@@ -234,7 +234,8 @@ export function OrbitSettings({ el, s, act, width }: { el: El; s: Snapshot; act:
 function ActivityView({ el, s, act, width }: { el: El; s: Snapshot; act: Actions; width: number }) {
   const { Box, Text } = el
   const filter = s.view.ref && (TAPE_FILTERS as readonly string[]).includes(s.view.ref) ? s.view.ref : 'all'
-  const all = tapeRows(s.log)
+  // With connections off the tape is what it was before them: the hand-back rows belong to the connections.
+  const all = tapeRows(s.prefs.agentLinks ? s.log : s.log.filter(r => r.flow !== 'back'))
   const rows = filterTape(all, filter).slice(-40).reverse()
   const { Button } = el
   const links = s.prefs.agentLinks

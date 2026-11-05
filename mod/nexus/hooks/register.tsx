@@ -1296,6 +1296,8 @@ type ReviewerEnd = { reason: 'answer' | 'aborted' | 'refusal' | 'error'; answer:
 const reviewerEnds = new Map<string, ReviewerEnd>()
 /** Agents running as the Test agent (`nexus-test`): their Bash calls are checked. Bounded; the agents list is a second source. */
 const testAgents = new Set<string>()
+/** Subagents seen calling SubagentHandback: their result is on its way to the lead. Bounded. */
+const handedBack = new Set<string>()
 
 /**
  * Why `arg` may not be used (it leads outside the repository, or where it leads cannot be told), or null. The path is
@@ -1354,7 +1356,9 @@ async function testGate($: EngineInterface, e: Record<string, unknown> & { tool:
     // The call the engine sees: only the fields a test run needs, with our limits. Anything else the agent
     // sent (a working directory, an environment, a claim of approval) is not passed on.
     const kept = Object.fromEntries(Object.entries(e).filter(([k]) => BASH_FIELDS.has(k) && !LOOSENING.test(k)))
-    return { input: { ...kept, timeout: cappedTimeout(e.timeout), run_in_background: false } as never }
+    // Foreground only. The field is forced off only when the agent sent it: some engine setups (background tasks
+    // disabled) have no such parameter, and a call that names an unknown one is rejected.
+    return { input: { ...kept, timeout: cappedTimeout(e.timeout), ...('run_in_background' in e ? { run_in_background: false } : {}) } as never }
   }
   // Read, Glob and Grep stay inside the repository too, by the same resolution as a Bash argument.
   if (name === 'Read' && typeof e.file_path === 'string') {
@@ -2137,11 +2141,17 @@ export const register: Register = (on, options) => {
       const result = wrapped ?? (origin.kind === 'peer' ? (/The report follows:\n([\s\S]*)$/.exec(e.text)?.[1] ?? '').replace(/^ {2}/gm, '') : '')
       if (role) pendingNotes.push(await settleBackground($, taskId, role, { reason: st === 'completed' ? 'answer' : st === 'failed' ? 'error' : 'aborted', answer: result }))
     }
-    // A background Haiku agent's completion notice (an engine-made prompt) is the one thing that shows its result
-    // reached the lead. A peer message is model-written text, so it never counts.
+    // A background Haiku agent's result reaches the lead in one of two ways, both made by the engine: its completion
+    // notice, or the agent's hand-back delivered as a message (what an interactive session does by default).
     else if (taskId && origin.kind === 'task-notification') {
       const st = /<status>(\w+)<\/status>/.exec(e.text)?.[1]
       await markReturned($, a => a.id === taskId, st !== undefined && st !== 'completed')
+    } else if (origin.kind === 'peer') {
+      // The engine writes its frame at column zero and indents the sender's own words, so a frame at column zero is
+      // the engine's and names who really sent it. It counts only for an agent we saw call SubagentHandback: an
+      // interim message from a running agent is not its result.
+      const from = /^<agent-message from="([^"\s]+)"/m.exec(e.text)?.[1]
+      if (from && handedBack.has(from) && !reviewerRoles.has(from)) await markReturned($, a => a.id === from, false)
     }
     // Notes ride on a prompt the model reads: never on a slash command.
     const notes = pendingNotes.length && !e.command && !(e as { agentId?: string }).agentId ? pendingNotes.splice(0) : []
@@ -2410,6 +2420,8 @@ export const register: Register = (on, options) => {
       }))
       // Some agents hand their answer back through a tool call rather than a final message.
       if (name === 'SubagentHandback') {
+        handedBack.add(id)
+        if (handedBack.size > 200) handedBack.delete(handedBack.values().next().value!)
         const text = ['result', 'message', 'summary', 'content', 'text'].map(k => (e as Record<string, unknown>)[k]).find(v => typeof v === 'string') as string | undefined
         if (text?.trim()) await patchAgent($, id, a => ({ ...a, summary: text.trim().slice(0, 600) }))
       }

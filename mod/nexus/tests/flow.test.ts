@@ -107,6 +107,26 @@ test('flow: Jev is an observation unless its routing is active and it reported a
   expect(flowOf(observed).jevPulse).not.toBeNull()
 })
 
+test('flow: an abstention (route effect "fallback") gives no Jev pulse; observed, accepted and a Jev decision do', () => {
+  const pulse = (...fxs: Fx[]) => flowOf(snap({ fx: fxs }, on)).jevPulse
+  // The answer missed the bar and the lead decided: not a choice Jev made.
+  expect(pulse(fx('route', 'fallback', 100, 900))).toBeNull()
+  // Still an abstention however fresh, and however many; a stale one is not a pulse either.
+  expect(pulse(fx('route', 'fallback', 0, 900), fx('route', 'fallback', 400, 900))).toBeNull()
+  // A choice Jev made pulses, with the position in its own time.
+  const observed = pulse(fx('route', 'observed', 300, 900))
+  expect(observed).not.toBeNull()
+  expect(Math.abs(observed! - 300 / 900)).toBeLessThan(0.001)
+  expect(pulse(fx('route', 'accepted', 100, 900))).not.toBeNull()
+  expect(pulse(fx('jev', null, 100, 900))).not.toBeNull()
+  // An abstention next to a choice: the choice still pulses.
+  expect(pulse(fx('route', 'fallback', 100, 900), fx('route', 'observed', 300, 900))).not.toBeNull()
+  // A fallback never counts as applied either, even in active routing.
+  const active = snap({ fx: [fx('route', 'fallback', 100, 900)] }, on)
+  active.jev = { ...active.jev, routing: 'active' }
+  expect(flowOf(active).isJevApplied).toBe(false)
+})
+
 test('flow: idle means quiet: no pulse of any kind without an event', () => {
   const s = snap({ fx: [], agents: [run({ status: 'done' })] }, on)
   const f = flowOf(s)

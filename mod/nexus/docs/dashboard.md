@@ -61,13 +61,13 @@ Nothing is drawn that the data does not prove. Each mark comes from an event Cla
 | You see | It means | Proven by |
 | :--- | :--- | :--- |
 | `▸` in a subagent row | the lead gave this run its task | the Agent call's `tool_use_id` matches the spawn that started it |
-| `◂` in a subagent row | the run's result was **handed back** to the lead | the Agent tool's result for that call (foreground), or the engine's completion notice (background) |
+| `◂` in a subagent row | the run's result was **handed back** to the lead | the Agent tool's result for that call (foreground), or, for a background run, the engine's completion notice or the agent's hand-back message once it called `SubagentHandback` (what a default interactive session does) |
 | `✓` / `✗` / `◌` | finished / failed / cancelled | the run's own stop and turn reports; a failure reported after an early "done" corrects it |
 | `SONNET→TEST` in the tape | a delegation the lead made | the same `tool_use_id` |
 | `SONNET←TEST` in the tape | its result handed back | the same result record |
 | a line from the lead's edge into the advisor | the advisor has been used; it brightens for a moment when a consultation is reported | the lead's own step report (one event: the request and the reply are not reported separately) |
 | `▸` / `◂` on a Council reviewer | running / its result handed to the lead | the reviewer's record |
-| `◇ observed` on Jev | Jev made a choice just now | Jev's answer. It is **never** an arrow and never means a command ran; `applied` appears only when active routing says it acted |
+| `◇ observed` on Jev | Jev made a choice just now | Jev's answer (an abstention is not a choice and shows nothing). It is **never** an arrow and never means a command ran; `applied` appears only when active routing says it acted |
 
 A run with no known Agent call, or a record from another session, gets no mark: nothing is claimed. A quiet dashboard shows only faint structure and nothing moves.
 

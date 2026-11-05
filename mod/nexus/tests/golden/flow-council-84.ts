@@ -17,7 +17,7 @@ export default [
  "│                    ▀       ▀▀▀         ▀                                         │",
  "│                                                                                  │",
  "└──────────────────────────────────────────────────────────────────────────────────╱",
- "                    ▾                                          ▾                    ",
+ "                    ┃                                          ▾                    ",
  "┌─ opus 5.5 advisor ─────────────── ╱╱╱─┐ ┌─ Council ──────────────────────── 1/3 ─┐",
  "│ ↳ calls 3  ·  last 2m 20s ago         │ │ ↳ security     running 0s              │",
  "│ ↳ council adaptive                    │ │ ↳ architecture done · 1 finding 1m 10s │",

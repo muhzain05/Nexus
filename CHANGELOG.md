@@ -11,7 +11,10 @@ Orbit stops being separate status boxes: the lead, advisor, Council, Jev and sub
 ### Correctness fixes found while building it
 - A subagent that stopped and was then reported as failed or cancelled **now shows as failed or cancelled** (the generic stop report carries no outcome, and used to win if it came first). A finished run never returns to running.
 - A repeated spawn for a known agent no longer resets a finished record; a new delegation to the same id replaces it and is labelled correctly.
-- A foreground result is recorded as *handed back*; a background launch is not (nothing has come back yet); a background agent is marked once the engine's completion notice arrives. A peer message, which is model-written text, never counts.
+- A foreground result is recorded as *handed back*; a background launch is not (nothing has come back yet). A background agent is marked when the engine's completion notice arrives, or when its hand-back message is delivered *after we saw it call `SubagentHandback`* (the engine frames the message at column zero and indents the sender's words, so the frame names the real sender; an interim message from a running agent does not count). Found in live validation: in a default interactive session every Agent call runs in the background and returns by hand-back message, so without this the return half never showed.
+- **Jev** shows `◇ observed` only for a choice it made, not for an abstention (found live).
+- **The Test agent's Bash gate** no longer adds `run_in_background: false` to a call that did not send it: in setups where background tasks are disabled the engine has no such parameter and rejected every test run (found live). When the agent does send it, it is still forced off.
+- **Show agent connections: off** now also hides the new hand-back rows from the tape, so Off looks as before.
 - Records are tagged with their session; a record from another session draws no connection.
 
 ### Provenance and limits

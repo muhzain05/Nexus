@@ -3,6 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import { FLOW_FIXTURES } from './fixtures'
 import { cells, evidenceOf, filterTape, orbitLines, tapeLabel, TAPE_FILTERS } from '../hooks/orbitlayout'
 import type { Line } from '../hooks/orbitlayout'
+import type { Snapshot } from '../hooks/views'
 import { agent, NOW, snap, withPrefs } from './snap'
 
 const on = withPrefs(['agentLinks', 'on'])
@@ -118,16 +119,63 @@ test('connections: the Council at 120 columns marks each reviewer; the running o
 test('connections: stacked layouts draw a line into the advisor and the Council, and give it up when tight', () => {
   const roomy = draw('flow-council-84')
   const i = roomy.findIndex(l => /└─+╱/.test(l))
-  expect(roomy[i + 1]).toMatch(/[▾▴╎]/)
+  expect(roomy[i + 1]).toMatch(/[┃▾▴╎]/)
   // Fit-to-height drops the row exactly as it drops the blank it replaced.
   const s = fixture('flow-council-84').state()
   const tight = text(s, 84, 10)
   expect(tight.length).toBeLessThan(roomy.length)
   const j = tight.findIndex(l => /└─+╱/.test(l))
-  expect(tight[j + 1]).not.toMatch(/^[ ▾▴╎]+$/)
+  expect(tight[j + 1]).not.toMatch(/^[ ┃▾▴╎]+$/)
   // Compact density keeps no gap rows at all.
   const compact = text({ ...s, prefs: withPrefs(['agentLinks', 'on'], ['density', 'compact']) }, 84)
-  expect(compact.join('\n')).not.toMatch(/^\s+[▾▴╎]\s+[▾▴╎]\s*$/m)
+  expect(compact.join('\n')).not.toMatch(/^\s+[┃▾▴╎]\s+[┃▾▴╎]\s*$/m)
+})
+
+test('connections: a fresh advisor consultation is one event: ┃ in the stacked connector row, never an arrow', () => {
+  const s = fixture('flow-council-84').state()
+  const at = (ago: number) => ({ ...s, fx: s.fx.map(f => (f.kind === 'advisor' ? { ...f, at: NOW - ago } : f)) })
+  // The connector row is the one under the lead's panel; its advisor mark sits on the left, the Council's on the right.
+  const connector = (lines: string[]) => lines[lines.findIndex(l => /└─+╱/.test(l)) + 1]!
+  const fresh = connector(text(at(500), 84))
+  expect(fresh).toMatch(/┃/)
+  const marks = fresh.trim().split(/\s+/)
+  expect(marks[0]).toBe('┃') // the advisor column
+  expect(marks[1]).toBe('▾') // the Council has a reviewer running: its arrow is unchanged
+  expect(fresh.indexOf('┃')).toBeLessThan(fresh.indexOf('▾'))
+  // Advisor alone (the Council quiet): the row has no arrow at all.
+  const quiet = fixture('flow-idle-84').state()
+  const only = connector(text({ ...quiet, fx: [{ kind: 'advisor', at: NOW - 500, ms: 4800, ref: null }] }, 84))
+  expect(only).toMatch(/┃/)
+  expect(only).not.toMatch(/[▾▴]/)
+  // Once the pulse is over, the quiet line comes back.
+  const stale = connector(text(at(9000), 84))
+  expect(stale).not.toMatch(/┃/)
+  expect(stale.trim().split(/\s+/)[0]).toBe('╎')
+  // The pulse is drawn bold, in the advisor's bright lavender.
+  const lines = orbitLines(at(500), 84)
+  const row = lines[lines.findIndex(l => /└─+╱/.test(l.map(g => g.t).join('')) ) + 1]!
+  expect(row.find(g => g.t === '┃')).toMatchObject({ b: true })
+})
+
+test('connections: with connections off the tape hides the hand-back rows; on shows them', () => {
+  const log: Snapshot['log'] = [
+    { at: NOW - 3000, who: 'grep', kind: 'start', text: 'grep#1 given its task', detail: '', ref: 'x', flow: 'out' },
+    { at: NOW - 1000, who: 'grep', kind: 'info', text: 'grep#1 result returned to the lead', detail: '', ref: 'x', flow: 'back' },
+    { at: NOW - 500, who: 'lead', kind: 'info', text: 'tests running', detail: '' },
+  ]
+  const states = (links: 'on' | 'off') => ({ ...fixture('flow-idle-84').state(), log, prefs: withPrefs(['agentLinks', links]) })
+  for (const w of [62, 84, 120]) {
+    const onTape = text(states('on'), w).join('\n')
+    expect(onTape).toMatch(/result returned to the lead/)
+    const offTape = text(states('off'), w).join('\n')
+    expect(offTape).not.toMatch(/returned to the lead/)
+    // The other rows are still there: only the connections' own rows are hidden.
+    expect(offTape).toMatch(/given its task/)
+    expect(offTape).toMatch(/tests running/)
+  }
+  // Nothing but hand-back rows: with connections off the tape is empty, as it was before they existed.
+  const only = { ...states('off'), log: [log[1]!] }
+  expect(text(only, 84).join('\n')).toMatch(/nothing yet/)
 })
 
 test('connections: Jev is observed, never "applied", unless routing is active; and it is never an arrow', () => {

@@ -123,7 +123,9 @@ export type Flow = {
 }
 
 export function flowOf(s: Snapshot): Flow {
-  const jevPulse = phase(s, 'jev') ?? phase(s, 'route')
+  // A choice Jev made. An abstention (its answer missed the bar, the lead decided) is not a choice: no pulse.
+  const routed = s.fx.find(f => f.kind === 'route' && f.ref !== 'fallback' && s.now - f.at >= 0 && s.now - f.at < f.ms)
+  const jevPulse = phase(s, 'jev') ?? (routed ? (s.now - routed.at) / routed.ms : null)
   // Applied only when the routing reported it acted ('accepted'), which only happens in active routing.
   const isJevApplied = s.fx.some(f => f.kind === 'route' && f.ref === 'accepted' && s.now - f.at >= 0 && s.now - f.at < f.ms) && s.jev.routing === 'active'
   return {

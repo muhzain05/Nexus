@@ -259,7 +259,8 @@ function connectorRow(s: Snapshot, aw: number, cw: number, w: number): Line {
   const marks = councilMarks(s)
   const ax = Math.floor(aw / 2)
   const cx = aw + 1 + Math.floor(cw / 2)
-  const adv: Seg = f.advisorPulse !== null ? { t: '▾', c: O.opusHi, b: true } : { t: '╎', c: f.advisorCalls > 0 ? O.edge.advisor : O.faint }
+  // One event (the request and the reply are not reported apart), so it brightens and points nowhere.
+  const adv: Seg = f.advisorPulse !== null ? { t: '┃', c: O.opusHi, b: true } : { t: '╎', c: f.advisorCalls > 0 ? O.edge.advisor : O.faint }
   const running = marks.some(x => x.tone === 'out')
   const back = marks.some(x => x.tone === 'back' && x.isPulse)
   const cou: Seg = running ? { t: '▾', c: O.opus } : back ? { t: '▴', c: O.opusHi, b: true } : { t: '╎', c: marks.some(x => x.tone !== 'idle') ? O.edge.council : O.faint }
@@ -635,8 +636,8 @@ export function evidenceOf(r: LogRow, list: NexusAgent[]): string {
 }
 
 function tapePanel(s: Snapshot, w: number, n: number): Line[] {
-  const shown = tapeRows(s.log).slice(-n)
   const links = s.prefs.agentLinks
+  const shown = tapeRows(links ? s.log : s.log.filter(r => r.flow !== 'back')).slice(-n)
   const labels = shown.map(tapeLabel)
   const lw = links ? Math.min(16, Math.max(8, ...labels.map(l => cells(l.label) + 1))) : 8
   const rows: Line[] = shown.map((r, i) => {

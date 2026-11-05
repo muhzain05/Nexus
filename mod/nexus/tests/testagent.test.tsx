@@ -77,11 +77,30 @@ test('a known test command reaches the engine in the foreground with a timeout',
   await start($)
   await spawn($, 'nexus-test', 'tu1')
   await call($, { tool: 'Bash', command: 'npm test', agentId: 'agent-1' })
-  expect(reached.at(-1)).toMatchObject({ tool: 'Bash', command: 'npm test', timeout: 120_000, run_in_background: false })
+  expect(reached.at(-1)).toMatchObject({ tool: 'Bash', command: 'npm test', timeout: 120_000 })
   await call($, { tool: 'Bash', command: 'pytest tests/test_cart.py -x', timeout: 99_999_999, run_in_background: true, agentId: 'agent-1' })
   expect(reached.at(-1)).toMatchObject({ command: 'pytest tests/test_cart.py -x', timeout: 300_000, run_in_background: false })
   await call($, { tool: 'Bash', command: 'go test ./...', timeout: 20_000, agentId: 'agent-1' })
   expect(reached.at(-1)).toMatchObject({ timeout: 20_000 })
+})
+
+test('run_in_background is forced off only when the agent sent the field; a call without it reaches the engine without it', async ($, on) => {
+  const reached = engine(on)
+  await start($)
+  await spawn($, 'nexus-test', 'tu1')
+  // Omitted: not injected (an engine with background tasks disabled rejects a parameter it does not know).
+  await call($, { tool: 'Bash', command: 'npm test', agentId: 'agent-1' })
+  expect('run_in_background' in reached.at(-1)!).toBe(false)
+  expect(JSON.stringify(reached.at(-1))).not.toMatch(/run_in_background/)
+  // Sent true: forced to false.
+  await call($, { tool: 'Bash', command: 'npm test', run_in_background: true, agentId: 'agent-1' })
+  expect(reached.at(-1)).toHaveProperty('run_in_background', false)
+  // Sent false: stays false.
+  await call($, { tool: 'Bash', command: 'npm test', run_in_background: false, agentId: 'agent-1' })
+  expect(reached.at(-1)).toHaveProperty('run_in_background', false)
+  // Sent as undefined: the field is there, so it is forced off too.
+  await call($, { tool: 'Bash', command: 'npm test', run_in_background: undefined, agentId: 'agent-1' })
+  expect(reached.at(-1)).toHaveProperty('run_in_background', false)
 })
 
 test('anything else the Test agent asks for is refused with the reason, and never reaches the engine', async ($, on) => {
@@ -363,7 +382,9 @@ test('council round 3: only the fields a test run needs reach the engine; a work
   await call($, { tool: 'Bash', command: 'pytest tests', description: 'run the cart tests', cwd: '/etc', env: { PYTHONPATH: '/tmp/evil' }, workdir: '/', shell: '/bin/sh', input: 'x', agentId: 'agent-1' })
   const sent = reached.at(-1)!
   expect(Object.keys(sent).sort()).toEqual(['agentId', 'command', 'description', 'run_in_background', 'timeout', 'tool', 'tool_use_id'].filter(k => k in sent).sort())
-  expect(sent).toMatchObject({ command: 'pytest tests', description: 'run the cart tests', run_in_background: false })
+  // The call did not name run_in_background, so the engine is not given one either.
+  expect(sent).toMatchObject({ command: 'pytest tests', description: 'run the cart tests' })
+  expect('run_in_background' in sent).toBe(false)
   expect(JSON.stringify(sent)).not.toMatch(/\/etc|PYTHONPATH|workdir|shell/)
 })
 

@@ -241,7 +241,7 @@ export function leadPlan(inner: number, density: 'comfortable' | 'compact', grap
   return { size: inner >= DIMENSIONS.small.cols ? 'small' : null, isBeside: false }
 }
 
-function leadPanel(s: Snapshot, w: number): Line[] {
+export function leadPanel(s: Snapshot, w: number): Line[] {
   const inner = w - 4
   const comfortable = s.prefs.density === 'comfortable'
   const plan = leadPlan(inner, s.prefs.density, s.prefs.centerpiece)

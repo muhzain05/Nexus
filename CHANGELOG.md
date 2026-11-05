@@ -28,7 +28,7 @@ A corrective release, not new features. The 0.8.0 black hole did not look like t
 - The frame timer kept running after the session ended and after the pane was closed mid-turn. It now stops on `session.end` and on the pane closing, and starts again when the pane reopens (tests verified by removing each fix).
 
 ### Security: the Test agent
-- **Reviewed again from scratch** with an adversarial pass and all three Council reviewers (see the review notes in the pull request).
+- **Reviewed again from scratch** with an adversarial pass and all three Council reviewers over six checkpoints (security, architecture, performance each time). Each round found real gaps, all fixed with a test that fails without the fix: a non-existent path under a symlinked folder; a leading `~`; a link whose target is a secret; Read, Glob and Grep paths and patterns (including `{ , ( |` groups) reaching outside the repository; a link whose own name looks like a test selector (`evil[1]`); unlisted tool fields silently dropped (now an allowlist per tool); a transient git failure remembered as "not a repository" (now only git's own exit code 128 is). The final checkpoint's security review found no defects.
 - Path arguments are resolved through symlinks and must stay inside the repository; a file that does not exist yet is judged by its nearest existing parent (found by a test: it slipped through before).
 - Commands must be plain ASCII. A shell splits words on a space or a tab only, while the check split on any Unicode whitespace, so a command could mean different things to each.
 - More call fields that claim approval or loosen permissions are dropped before the call reaches the engine (`permissionMode`, `allowedTools`, `approved`, …).
@@ -36,7 +36,7 @@ A corrective release, not new features. The 0.8.0 black hole did not look like t
 - The Test agent is still **not isolation**: the project's tests run with your permissions.
 
 ### Tests and checks
-- 301 → **339** tests (plus the Council-reviewed changes). New: golden screens for 17 fixtures (dashboards at 60/80/100/120 columns, telemetry presets, Council, four agents, the black hole's three frames), teardown, symlinks, adversarial commands.
+- 301 → **371** tests, all passing locally with a clean type-check. New: golden screens for 17 fixtures (dashboards at 60/80/100/120 columns, telemetry presets, Council, four agents, the black hole's three frames), teardown, symlinks, adversarial commands.
 - Measured in a live session: idle CPU about 3% with about 5 B/s of terminal output for both themes; while working, Orbit 5.4% and 203 B/s against Classic 6.9% and 373 B/s (figures include Claude Code itself). Frame generation: all 60 frames of the large picture in under 6 ms, under 1.7 MB cached; a full layout in about 0.2 ms.
 - **Timing flake explained.** Each test file runs in its own process that compiles the plugin, with a 5 s limit per test. The same two Council tests that take 0.25 s alone timed out at 5 s when 23 files started at once on a machine under memory pressure (load 15, about 1.9 GB free). CI now retries the test step once and prints the first failure. Timeouts were not raised.
 
@@ -44,7 +44,8 @@ A corrective release, not new features. The 0.8.0 black hole did not look like t
 - **Live validation covered** `/nexus` open and close, theme switching, settings with the keyboard, a resize, four pane widths (62, 84, 100 and 120 columns), a real Haiku subagent pair and Jev telemetry. **Not covered live:** Council reviewers (three Opus reviews cost too much for a smoke test; they are covered by tests) and a terminal other than the emulated one used to capture (Terminal.app, iTerm2 and Ghostty were not driven).
 - The README demo is a sequence of real screens about 1.6 s apart, not a smooth video.
 - Pixel art at 44 or 64 pixels wide is chunkier than the 125-pixel reference it follows.
-- The history finding (commit `2a847ee49c`) could not be classified from safe evidence: see SECURITY notes in the pull request.
+- The secret-scanner finding on an earlier commit (`2a847ee49c`) could not be classified from safe evidence, and no value was read or printed. It is left to the repository owner to check and decide (rotate, and whether to rewrite history); nothing was rewritten.
+- The last small fixes after the sixth Council checkpoint (shared width step for measuring and trimming, structural Glob check, de-duplicated gate paths, git exit-code check) were covered by tests and a clean type-check but were not shown to the reviewers again.
 
 ## 0.8.0 (2026-11-04): Orbit
 - **Orbit theme.** A new look for the dashboard: near-black, thin panels with an angled corner, warm orange for Sonnet, blue for Haiku, lavender for Opus and mint for Jev. It lays out for a split terminal (three layouts: 96+, 68+ and narrower columns; a list below 40), with a long task name shrinking before any state, time or alert. Classic is unchanged.

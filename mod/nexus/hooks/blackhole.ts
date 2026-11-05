@@ -1,26 +1,34 @@
 // Orbit's lead graphic: a pixel-art black hole in terminal cells. Pure.
 //
-// What it is. A small, deliberately shaped picture, drawn in square pixels: a dark event horizon
-// with a thin inner arc, a dome of layered orange light above it (the far side of the disk, bent
-// over the top by gravity), a thin tapering accretion disk that crosses the horizon's lower edge,
-// a faint bowl of lensed light under it, and a few isolated particles. It is lopsided on purpose:
-// the left of the disk is the hotter side, the dome is far brighter than the bowl.
+// What it is. A small, deliberately shaped picture, drawn in square dots like an amber halftone:
+// a dark event horizon with a thin dotted photon ring hugging its edge, a bright thin accretion
+// disk that crosses the horizon's lower part and tapers to dotted points, a broad dotted dome of
+// lensed light over the top (dense on the hot left shoulder, thinning to one sparse outer arc), a
+// faint dotted arc under the disk, and a few isolated brighter particles. Most of the picture is
+// black. It is lopsided on purpose: the left is hotter and denser than the right.
+//
+// Where it comes from. The target is an amber halftone of a black hole (separate square dots on a
+// grid, a dark horizon, a thin ring, a bright disk line, a sparse dome). It is still hand-authored:
+// the shapes below are written as formulas and hand-placed particles, not traced from an image.
 //
 // How it is drawn. A cell is about twice as tall as it is wide, so a half block (`▀` `▄`) is a
 // square pixel: the top pixel is the glyph's colour, the bottom pixel is its background. Dark
 // areas (the horizon, the sky) are cells with no colour at all, never a dark colour, so a terminal
-// without colour still shows the horizon as empty. The palette is eight steps whose colours are
-// exact xterm-256 entries, so a 256-colour terminal shows the same picture as a true-colour one.
+// without colour still shows the horizon as empty. The palette is eight steps of one amber hue
+// whose colours are exact xterm-256 entries, so a 256-colour terminal shows the same picture as a
+// true-colour one. Density is a static ordered dither (a 4x4 Bayer matrix on the pixel position):
+// each region has a coverage, a pixel is lit when the coverage beats its threshold, so the dome and
+// the outer disk are sparse dots while the ring, the disk core and the particles stay solid.
 //
 // Three compositions (small, medium, large) are tuned separately, not one picture scaled: the
-// small one keeps the horizon, the thin disk and the dome; the large one adds contour bands and
-// disk streaks.
+// small one keeps the horizon, the thin disk and the dome; the large one adds the photon ring, the
+// lower arc and more particles.
 //
-// How it moves. Which pixels are lit never changes, so the silhouette and the horizon are fixed.
-// Only the brightness of lit pixels moves, by at most one palette step: a slow warm wave along
-// the disk, a slower ripple through the dome, and a gentle twinkle of the particles. A cycle is
-// 24 seconds (36 on `veryslow`) and its last frame is the first frame's neighbour, so it loops
-// without a seam.
+// How it moves. Which pixels are lit never changes (the dither is decided once), so the silhouette
+// and the horizon are fixed. Only the brightness of lit pixels moves, by at most one palette step:
+// a slow warm wave along the disk, a slower ripple through the dome, a shimmer round the ring and a
+// gentle twinkle of the particles. A cycle is 24 seconds (36 on `veryslow`) and its last frame is
+// the first frame's neighbour, so it loops without a seam.
 
 export type BhSize = 'small' | 'medium' | 'large'
 export type BhRun = { text: string; fg?: string; bg?: string }
@@ -32,8 +40,8 @@ export type BhSpeed = keyof typeof CYCLE_MS
 /** Distinct frames per cycle (2.5 a second at `slow`): what the pane redraws at, no faster. */
 export const FRAMES = 60
 
-/** Dark red to amber. Each is an exact xterm-256 colour (52, 88, 124, 166, 172, 208, 214, 221). */
-export const PALETTE = ['#5f0000', '#870000', '#af0000', '#d75f00', '#d78700', '#ff8700', '#ffaf00', '#ffd75f'] as const
+/** One amber hue, dark to bright. Each is an exact xterm-256 colour (94, 130, 136, 172, 214, 215, 221, 222). */
+export const PALETTE = ['#875f00', '#af5f00', '#af8700', '#d78700', '#ffaf00', '#ffaf5f', '#ffd75f', '#ffd787'] as const
 
 /** Cells (columns × rows) of each composition. A pixel grid is `cols` wide and `rows * 2` tall. */
 export const DIMENSIONS: Record<BhSize, { cols: number; rows: number }> = {
@@ -42,11 +50,15 @@ export const DIMENSIONS: Record<BhSize, { cols: number; rows: number }> = {
   large: { cols: 64, rows: 14 },
 }
 
-/** Per-composition tuning: how much texture, how many contour steps, how many particles. */
-const TUNE: Record<BhSize, { texture: number; bands: number; particles: number; bowl: boolean; photon: boolean }> = {
-  small: { texture: 0, bands: 2, particles: 3, bowl: false, photon: false },
-  medium: { texture: 0.45, bands: 3, particles: 6, bowl: true, photon: true },
-  large: { texture: 0.8, bands: 4, particles: 10, bowl: true, photon: true },
+/**
+ * Per-composition tuning: how much texture, how many particles, whether it has the photon ring and
+ * the lower arc, how wide a one-pixel ring is in the horizon's own units, and which extra rows the
+ * disk gets above and below its centre line.
+ */
+const TUNE: Record<BhSize, { texture: number; particles: number; bowl: boolean; photon: boolean; ringW: number; diskUp: boolean; diskDown: boolean }> = {
+  small: { texture: 0, particles: 3, bowl: false, photon: false, ringW: 0.24, diskUp: false, diskDown: false },
+  medium: { texture: 0.45, particles: 6, bowl: true, photon: true, ringW: 0.17, diskUp: true, diskDown: false },
+  large: { texture: 0.8, particles: 10, bowl: true, photon: true, ringW: 0.15, diskUp: true, diskDown: true },
 }
 
 /** The glyph set when colour is not available: shades by brightness, half blocks for the brightest. */
@@ -59,12 +71,15 @@ export function sizeFor(cols: number, rows: number): BhSize | null {
 }
 
 // ---- the picture, in a reference space -----------------------------------------------------
-// The picture is composed on a 620 × 274 canvas (disk tip to tip, dome top to bowl bottom) and
+// The picture is composed on a 620 × 274 canvas (disk tip to tip, outer arc to lower arc) and
 // sampled at the pixel grid, so the three sizes share proportions but not pixels.
 const REF = { w: 620, h: 274, x0: 35, y0: 118 }
 const CX = 340 // the horizon's centre
-const AXIS = 268 // the disk's own centre line
-const HORIZON = { cy: 290, rx: 100, ry: 125 }
+const AXIS = 283 // the disk's own centre line (snapped to a pixel row per size)
+const HORIZON = { rx: 95, ry: 90, up: 28 } // the horizon's centre sits `up` above the disk line
+const DISK_HALF = 300 // the disk reaches this far either side of the centre
+// The outer envelope of the lensed light: an ellipse on the disk line, wider on the hot left side.
+const OUTER = { cx: CX + 10, rxLeft: 250, rxRight: 175, ry: 150 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
 const smooth = (a: number, b: number, v: number) => {
@@ -79,94 +94,98 @@ function hash(x: number, y: number, seed: number): number {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296
 }
 
-type Kind = 'dome' | 'disk' | 'bowl' | 'arc' | 'dust'
+/** The 4x4 Bayer matrix as thresholds in (0, 1): a pixel with coverage above its threshold is lit. */
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]
+const threshold = (x: number, y: number) => (BAYER[(y & 3) * 4 + (x & 3)]! + 0.5) / 16
+
+type Kind = 'ring' | 'dome' | 'disk' | 'bowl' | 'dust'
 /** One lit pixel: its brightness step (1 to 8), what part of the picture it belongs to, and where along it. */
 type Lit = { level: number; kind: Kind; along: number; phase: number }
+/** A candidate pixel: lit only if its coverage (0 to 1) beats the dither threshold at its position. */
+type Sample = Lit & { cov: number }
 
-/** Dome height above the disk's axis at horizontal position t (-1..1): tall in the middle, long tails. */
-const domeHeight = (t: number) => 146 * Math.exp(-((Math.abs(t) / 0.58) ** 2.2)) + 7 * (1 - Math.abs(t)) ** 2
+/** Where things sit for one size: the disk line snapped to a pixel row, and the pixel's own height. */
+function geo(size: BhSize) {
+  const H = DIMENSIONS[size].rows * 2
+  const row = Math.round(((AXIS - REF.y0) / REF.h) * H - 0.5)
+  const ax = REF.y0 + ((row + 0.5) / H) * REF.h
+  return { ax, pxH: REF.h / H, cy: ax - HORIZON.up }
+}
+
+/** The horizon's edge distance: 1 on the edge, below 1 inside. */
+const edgeOf = (X: number, Y: number, cy: number) => Math.hypot((X - CX) / HORIZON.rx, (Y - cy) / HORIZON.ry)
+/** Within one pixel row of the disk's centre line: the only rows where the horizon may be lit (the disk crosses it). */
+const isDiskRow = (Y: number, size: BhSize) => {
+  const { ax, pxH } = geo(size)
+  return Math.abs(Math.round((Y - ax) / pxH)) <= 1
+}
 
 /** A few isolated particles, in reference space, placed by hand: not on any curve, not evenly spread. */
 const DUST: { x: number; y: number; level: number }[] = [
-  { x: 112, y: 150, level: 6 }, { x: 590, y: 160, level: 4 }, { x: 70, y: 262, level: 3 }, { x: 628, y: 292, level: 7 },
-  { x: 205, y: 372, level: 5 }, { x: 498, y: 355, level: 3 }, { x: 288, y: 128, level: 3 }, { x: 560, y: 120, level: 8 },
-  { x: 150, y: 330, level: 4 }, { x: 410, y: 384, level: 2 },
+  { x: 112, y: 150, level: 6 }, { x: 600, y: 166, level: 5 }, { x: 70, y: 252, level: 4 }, { x: 628, y: 232, level: 7 },
+  { x: 205, y: 372, level: 5 }, { x: 498, y: 368, level: 4 }, { x: 205, y: 128, level: 4 }, { x: 540, y: 134, level: 8 },
+  { x: 150, y: 330, level: 5 }, { x: 410, y: 386, level: 3 },
 ]
 
-/** The lit pixel at reference position (X, Y), or null for sky and for the horizon. */
-function sample(X: number, Y: number, size: BhSize): Lit | null {
+/** The candidate pixel at reference position (X, Y), or null for sky and for the horizon. */
+function sample(X: number, Y: number, size: BhSize): Sample | null {
   const tune = TUNE[size]
+  const { ax, pxH, cy } = geo(size)
   const dx = X - CX
-  const t = dx / 315
-  // E is 1 on the horizon's edge, below 1 inside it. Only the upper half is a dome; below the
-  // centre line the horizon is closed by the disk's near edge.
-  const E = Y <= HORIZON.cy + 1 ? Math.hypot(dx / HORIZON.rx, (Y - HORIZON.cy) / HORIZON.ry) : 9
-  if (E < 1.05) {
-    // The event horizon and the thin dark outline round it stay unlit. One dim arc inside it, the
-    // photon ring, is the only thing drawn there.
-    if (tune.photon && E > 0.64 && E < 0.74 && Y < HORIZON.cy - 8) return { level: 2, kind: 'arc', along: t, phase: 0 }
+  const t = dx / DISK_HALF
+  const k = Math.round((Y - ax) / pxH) // pixel rows below (+) or above (-) the disk's centre line
+  const left = smooth(CX + 30, CX - 130, X) // 1 on the hot left side, 0 on the right
+  const E = edgeOf(X, Y, cy)
+
+  // The disk: a bright thin line along the axis, one or two pixels tall, in front of the horizon,
+  // tapering to dotted points. The rows just above and below it are dimmer.
+  if (k >= -1 && k <= 1) {
+    const a = Math.abs(t)
+    if (a > 1) return null
+    const core = smooth(0.9, 0.15, a)
+    const lean = 1 + 0.35 * smooth(-0.05, -0.45, t) // the left side is the hot one
+    const grain = (hash(Math.round(X / 8), Math.round(Y / 8), 2) - 0.5) * tune.texture * 0.8
+    const base = 2.4 + 2.9 * core * lean + grain
+    const along = t
+    if (k === 0) return { level: clamp(Math.round(base), 1, 8), kind: 'disk', along, phase: 0.5, cov: 0.3 + 0.62 * smooth(0.95, 0.4, a) + 0.1 * smooth(0.3, 0.15, a) }
+    if (k === -1 && tune.diskUp) return { level: clamp(Math.round(base - 1.2 - 1.6 * smooth(0.15, 0.6, a)), 1, 8), kind: 'disk', along, phase: 0.1, cov: 0.86 * smooth(0.66, 0.1, a) + 0.14 * smooth(0.3, 0.1, a) }
+    if (k === 1 && tune.diskDown) return { level: clamp(Math.round(base - 3), 1, 8), kind: 'disk', along, phase: 0.9, cov: 0.8 * smooth(0.55, 0.15, a) }
     return null
   }
 
-  // The dome: the far side of the disk, lifted over the horizon. A thin bright rim hugs the
-  // outline; beyond it a body of layered red and orange, brightest as a band, hotter on the left.
-  const envelope = AXIS - domeHeight(t)
-  const floor = AXIS - 8
-  if (Y >= envelope && Y <= floor && Math.abs(t) < 1) {
-    const rimTop = Math.abs(dx) < HORIZON.rx * 1.2 ? HORIZON.cy - HORIZON.ry * 1.2 * Math.sqrt(1 - (dx / (HORIZON.rx * 1.2)) ** 2) : floor
-    const s = clamp((Y - envelope) / Math.max(1, Math.min(floor, rimTop) - envelope), 0, 1) // 0 outer edge .. 1 at the rim
-    const glow = Math.sin(Math.PI * s ** 0.9)
-    const bands = Math.sin(2 * Math.PI * (tune.bands * 0.55 * s + 0.45 * t)) * (0.55 + 0.5 * tune.texture)
-    const hot = 1.1 * smooth(-0.1, -0.55, t) * (1 - s * 0.6) + 0.4 * smooth(0.15, 0.5, t) * smooth(0.95, 0.4, t)
-    const grain = (hash(Math.round(X / 9), Math.round(Y / 9), 1) - 0.5) * tune.texture * 0.6
-    // The body is never dark: a red floor everywhere, an orange band through the middle.
-    let level = 2.2 + 1.9 * glow + 0.9 * bands + 0.8 * hot + grain
-    level *= 0.72 + 0.28 * smooth(1, 0.5, Math.abs(t))
-    if (s < 0.07) level -= 1.4
-    if (E < 1.17) level = 4.2 + 0.9 * smooth(0.2, -0.5, t) + 0.4 * (E < 1.1 ? 1 : 0) // the rim itself
-    const lv = Math.round(level)
-    if (lv >= 1) return { level: clamp(lv, 1, 7), kind: 'dome', along: t, phase: s }
-    return null
-  }
+  // The event horizon stays unlit.
+  if (E < 1.05) return null
 
-  // The disk: thin, widest a little left of centre, tapering to points; it crosses the horizon's
-  // lower edge as a flat band and is hidden behind the horizon above that.
-  const lens = 1 - Math.abs(t) ** 1.15
-  const top = AXIS - 31 * lens - 2
-  const bottom = AXIS + 29 * (1 - Math.abs(t) ** 1.7) + 2
-  const half = (bottom - top) / 2
-  if (Math.abs(t) <= 1 && Y >= top && Y <= bottom) {
-    const front = Math.abs(dx) < HORIZON.rx + 12
-    if (E < 1.17 || (front && Y < HORIZON.cy - 3)) return null
-    const along = Math.abs(t)
-    const core = smooth(0.95, 0.35, along)
-    const streak = Math.sin(2 * Math.PI * (7 * t + (0.9 * (Y - AXIS)) / Math.max(8, half))) * 0.55 * tune.texture
-    const grain = (hash(Math.round(X / 8), Math.round(Y / 8), 2) - 0.5) * tune.texture * 0.9
-    const lean = 1 + 0.55 * smooth(-0.1, -0.5, t) // the left side is the hot one
-    const edge = 1 - Math.abs((Y - (top + bottom) / 2) / (half + 1)) ** 2
-    let level = (2.2 + 3.4 * core * lean) * (0.6 + 0.4 * edge) + streak + grain
-    if (front) level = 2.2 + 0.6 * edge + grain * 0.5 // under the horizon it is a dim flat band
-    const lv = Math.round(level)
-    if (lv >= 1) return { level: clamp(lv, 1, 8), kind: 'disk', along: t, phase: (Y - top) / (bottom - top) }
-    return null
-  }
-
-  // The bowl: lensed light under the horizon, flat and understated, a gap below the disk, two or
-  // three stripes that follow the curve.
-  if (tune.bowl && Y > AXIS + 46) {
-    const e = Math.hypot(dx / 116, (Y - 312) / 66)
-    if (e <= 1 && e >= 0.3 && Math.abs(dx) < 118) {
-      const bandPos = (e - 0.3) / 0.7
-      const stripe = Math.sin(2 * Math.PI * (tune.bands * 0.5 * bandPos + 0.2))
-      const fade = smooth(1, 0.82, e) * smooth(0.3, 0.46, e) * smooth(0.98, 0.7, Math.abs(t) * 2.6)
-      const lean = 1 + 0.25 * smooth(0, -0.4, t)
-      let level = (2.1 + 1.7 * stripe + 1.2 * (1 - Math.abs(bandPos - 0.55) * 2)) * fade * lean
-      if (hash(Math.round(X / 5), Math.round(Y / 5), 3) < 0.12 * tune.texture) level -= 1
-      const lv = Math.round(level)
-      if (lv >= 1) return { level: clamp(lv, 1, 6), kind: 'bowl', along: t, phase: bandPos }
+  if (k > 1) {
+    if (!tune.bowl) return null
+    // A faint dotted arc continuing the horizon's edge under the disk, sparse, hotter on the left.
+    if (E >= 1.1 && E < 1.1 + tune.ringW * 0.9) {
+      const fade = smooth(1.5, 3.5, k) * smooth(1.12 * HORIZON.rx, 0.9 * HORIZON.rx, Math.abs(dx) * 0.9)
+      return { level: clamp(Math.round(3 + 1.2 * left), 1, 6), kind: 'bowl', along: t, phase: (E - 1.1) / tune.ringW, cov: 0.85 * fade }
     }
+    return null
   }
-  return null
+
+  // Above the disk: the photon ring hugging the horizon, then the lensed dome out to its outer arc.
+  const rxo = X < OUTER.cx ? OUTER.rxLeft : OUTER.rxRight
+  const Eo = Math.hypot((X - OUTER.cx) / rxo, (Y - ax) / OUTER.ry)
+  if (tune.photon && E < 1.05 + tune.ringW) {
+    return { level: clamp(Math.round(5 + 0.9 * left - 0.4 * smooth(0.1, 1, (X - CX) / 150)), 1, 8), kind: 'ring', along: t, phase: 0.2, cov: 0.8 }
+  }
+  if (Eo > 1) return null
+  const arcW = (tune.ringW * 1.1 * HORIZON.ry) / OUTER.ry
+  const rise = smooth(ax - 10, ax - OUTER.ry, Y) // 0 low, 1 at the very top
+  if (Eo >= 1 - arcW) {
+    // The thin outer arc: sparse dotted points, brighter toward the top and the left.
+    return { level: clamp(Math.round(2.4 + 1.3 * rise + 1.0 * left), 1, 8), kind: 'dome', along: t, phase: 1, cov: 0.36 + 0.14 * left + (tune.photon ? 0 : 0.3) }
+  }
+  const s = clamp((E - 1.05) / (E - 1.05 + 1.7 * (1 - Eo) + 1e-6), 0, 1) // 0 at the horizon's edge .. 1 at the outer arc
+  const near = 1 - smooth(0.08, 0.85, s)
+  const grain = (hash(Math.round(X / 9), Math.round(Y / 9), 1) - 0.5) * tune.texture * 0.8
+  const top = smooth(ax - 70, ax - 150, Y)
+  const cov = 0.06 + (0.3 + 0.5 * Math.max(left, 0.5 * top)) * near ** 1.3
+  const level = 1.8 + 2.2 * near + 1 * left * near + grain
+  return { level: clamp(Math.round(level), 1, 7), kind: 'dome', along: t, phase: s, cov }
 }
 
 /** The lit pixels of one composition as a grid, row-major, `null` for dark. Computed once. */
@@ -181,16 +200,10 @@ function grid(size: BhSize) {
   const px: (Lit | null)[] = new Array(W * H).fill(null)
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
-      px[y * W + x] = sample(REF.x0 + ((x + 0.5) / W) * REF.w, REF.y0 + ((y + 0.5) / H) * REF.h, size)
+      // The dither: lit or dark is decided here, once, so the silhouette is the same in every frame.
+      const s = sample(REF.x0 + ((x + 0.5) / W) * REF.w, REF.y0 + ((y + 0.5) / H) * REF.h, size)
+      if (s && s.cov > threshold(x, y)) px[y * W + x] = { level: s.level, kind: s.kind, along: s.along, phase: s.phase }
     }
-  }
-  // The disk's near edge always shows under the horizon as a flat band at least one pixel tall, so
-  // the horizon is never open at the bottom whatever the grid's size.
-  // The first row whose centre is below the horizon's last row.
-  const bandY = Math.ceil(((HORIZON.cy + 2 - REF.y0) / REF.h) * H - 0.5)
-  for (let x = 0; x < W; x++) {
-    const dx = REF.x0 + ((x + 0.5) / W) * REF.w - CX
-    if (Math.abs(dx) < HORIZON.rx + 14 && bandY >= 0 && bandY < H && !px[bandY * W + x]) px[bandY * W + x] = { level: 3, kind: 'disk', along: dx / 315, phase: 0.9 }
   }
   // Isolated particles go on last, only on dark pixels and never next to anything lit.
   const n = TUNE[size].particles
@@ -198,10 +211,12 @@ function grid(size: BhSize) {
     for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) if (px[(y + j) * W + x + i]) return true
     return false
   }
+  const { cy } = geo(size)
   DUST.slice(0, n).forEach((d, k) => {
     const x = Math.round(((d.x - REF.x0) / REF.w) * W - 0.5)
     const y = Math.round(((d.y - REF.y0) / REF.h) * H - 0.5)
     if (x < 1 || y < 1 || x >= W - 1 || y >= H - 1 || taken(x, y)) return
+    if (edgeOf(d.x, d.y, cy) < 1.3) return
     px[y * W + x] = { level: d.level, kind: 'dust', along: x / W, phase: hash(x, y, 7 + k) }
   })
   g = { W, H, px }
@@ -209,21 +224,26 @@ function grid(size: BhSize) {
   return g
 }
 
-/** How much brighter or dimmer (in palette steps, never more than one) a lit pixel is at `phase`. */
+/** A glint: a pixel is one step brighter while the wave at its position is high, and at its resting step otherwise. */
+const glint = (theta: number) => (Math.sin(Math.PI * 2 * theta) > 0.5 ? 1 : 0)
+
+/** How much brighter (in palette steps, never more than one) a lit pixel is at `phase`: a wave that travels, not a flicker everywhere. */
 function shimmer(p: Lit, phase: number): number {
-  const TAU = Math.PI * 2
   switch (p.kind) {
     // A slow warm wave along the disk, twice round the picture a cycle: the flow of hot material.
     case 'disk':
-      return 0.9 * Math.sin(TAU * (p.along - phase * 2 + 0.12 * p.phase))
+      return glint(p.along - phase * 2 + 0.12 * p.phase)
     // A slower ripple moving through the dome's bands.
     case 'dome':
-      return 0.75 * Math.sin(TAU * (phase + 0.9 * p.phase - 0.35 * p.along))
+      return glint(phase + 0.9 * p.phase - 0.35 * p.along)
+    // A glint that travels round the photon ring.
+    case 'ring':
+      return glint(phase * 2 - p.along * 0.8)
     case 'bowl':
-      return 0.55 * Math.sin(TAU * (phase - 0.7 * p.phase))
+      return glint(phase - 0.7 * p.phase)
     // Each particle breathes on its own beat.
     case 'dust':
-      return 0.9 * Math.sin(TAU * (phase * 2 + p.phase))
+      return glint(phase * 2 + p.phase)
     default:
       return 0
   }
@@ -245,8 +265,11 @@ export function drawBlackHole(size: BhSize, t: number | null, isMono = false): B
   for (let r = 0; r < H / 2; r++) {
     const runs: BhRun[] = []
     const push = (text: string, fg?: string, bg?: string) => {
+      // Only runs of empty space merge. Every coloured cell is its own run, so a frame's run list has the
+      // same shape in every frame: a colour that changes never joins or splits its neighbours, and a
+      // renderer comparing frames run by run sees exactly the cells that changed.
       const last = runs.at(-1)
-      if (last && last.fg === fg && last.bg === bg) last.text += text
+      if (last && !fg && !bg && !last.fg && !last.bg) last.text += text
       else runs.push({ text, fg, bg })
     }
     for (let x = 0; x < W; x++) {
@@ -308,25 +331,24 @@ export function litPixels(size: BhSize): string[] {
   return out
 }
 
-/** The pixels that must stay dark in every frame: the event horizon and its outline, except the one dim arc inside it. */
+/** The pixels that must stay dark in every frame: the event horizon, except the rows the disk crosses it on. */
 export function horizonPixels(size: BhSize): string[] {
   const { cols, rows } = DIMENSIONS[size]
   const W = cols
   const H = rows * 2
+  const { cy } = geo(size)
   const out: string[] = []
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const X = REF.x0 + ((x + 0.5) / W) * REF.w
       const Y = REF.y0 + ((y + 0.5) / H) * REF.h
-      const E = Y <= HORIZON.cy + 1 ? Math.hypot((X - CX) / HORIZON.rx, (Y - HORIZON.cy) / HORIZON.ry) : 9
-      const isArc = E > 0.64 && E < 0.74 && Y < HORIZON.cy - 8
-      if (E < 1.05 && !isArc) out.push(`${x},${y}`)
+      if (edgeOf(X, Y, cy) < 1.05 && !isDiskRow(Y, size)) out.push(`${x},${y}`)
     }
   }
   return out
 }
 
-/** What each lit pixel is part of (`dome`, `disk`, `bowl`, `arc`, `dust`), keyed `x,y`. For tests. */
+/** What each lit pixel is part of (`ring`, `dome`, `disk`, `bowl`, `dust`), keyed `x,y`. For tests. */
 export function litKinds(size: BhSize): Record<string, string> {
   const { W, H, px } = grid(size)
   const out: Record<string, string> = {}

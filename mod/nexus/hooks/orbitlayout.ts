@@ -10,6 +10,8 @@ import { DIMENSIONS, blackHole, sizeFor } from './blackhole'
 import type { BhSize } from './blackhole'
 import { councilTokens, ROLES, ROLE_LABEL } from './council'
 import { clock, compact, elapsed, modelLabel } from './format'
+import { agentFlow, agentMark, councilMarks, flowOf } from './flow'
+import type { Mark } from './flow'
 import { coreOrbit } from './orbit'
 import { visibility } from './prefs'
 import { freshness, limitLabel, orderLimits, resetLabel, tone as usageTone, usd } from './telemetry'
@@ -191,6 +193,77 @@ function beside(a: Line[], wa: number, b: Line[], wb: number, gap = 1): Line[] {
   const out: Line[] = []
   for (let i = 0; i < n; i++) out.push([...(a[i] ?? blank(wa)), seg(' '.repeat(gap)), ...(b[i] ?? blank(wb))])
   return out
+}
+
+/** One mark as a coloured cell. `calm` and `bright` are the role's colours: settled, and while its event plays. */
+function markSeg(m: Mark, calm: string, bright: string, isStill: boolean): Seg {
+  switch (m.tone) {
+    case 'none':
+      return { t: ' ' }
+    case 'idle':
+      return { t: m.glyph, c: O.faint }
+    case 'out':
+      // Delegation: the signal starts at the lead (orange) and arrives at the worker (the role's colour). Without motion it is just the arrival.
+      return { t: m.glyph, c: m.isPulse ? (!isStill && (m.t ?? 1) < 0.5 ? O.sonnetHi : bright) : calm, b: m.isPulse }
+    case 'back':
+      return { t: m.glyph, c: m.isPulse ? bright : calm, b: m.isPulse }
+    case 'done':
+      return { t: m.glyph, c: m.isPulse ? O.jevHi : O.green, b: m.isPulse }
+    case 'fail':
+      return { t: m.glyph, c: O.red, b: true }
+    default:
+      return { t: m.glyph, c: O.amber }
+  }
+}
+
+/**
+ * Two stacks side by side. Where `links` has a mark for a row, the left panel's right edge there becomes a tee
+ * and the gap between the panels carries the mark: the lead's side of the connection, drawn only for a row that
+ * has a relationship to show.
+ */
+function besideLinked(a: Line[], wa: number, b: Line[], wb: number, links: Map<number, Seg>): Line[] {
+  const n = Math.max(a.length, b.length)
+  const out: Line[] = []
+  for (let i = 0; i < n; i++) {
+    let left = a[i] ?? blank(wa)
+    let mid: Seg = seg(' ')
+    const link = links.get(i)
+    const edge = left.at(-1)
+    if (link && edge?.t === '│') {
+      left = [...left.slice(0, -1), { ...edge, t: '├' }]
+      mid = link
+    }
+    out.push([...left, mid, ...(b[i] ?? blank(wb))])
+  }
+  return out
+}
+
+/** The links from the lead to the advisor and the Council, by row of the right column. */
+function sideLinks(s: Snapshot, advisorRows: number, gapRows: number, hasCouncil: boolean, isStill: boolean): Map<number, Seg> {
+  const f = flowOf(s)
+  const m = new Map<number, Seg>()
+  // The advisor is one event (reported when it ends): lavender while it is fresh, a quiet line once it has been used.
+  m.set(1, f.advisorPulse !== null ? { t: '─', c: O.opusHi, b: true } : { t: '─', c: f.advisorCalls > 0 ? O.edge.advisor : O.faint })
+  if (!hasCouncil) return m
+  const top = advisorRows + gapRows
+  const marks = councilMarks(s)
+  const isUsed = marks.some(x => x.tone !== 'idle')
+  m.set(top, { t: '─', c: marks.some(x => x.isPulse) ? O.opusHi : isUsed ? O.edge.council : O.faint })
+  if (s.prefs.council.activation !== 'off') marks.forEach((x, k) => m.set(top + 1 + k, markSeg(x, O.opus, O.opusHi, isStill)))
+  return m
+}
+
+/** In the blank row under the lead: a short line down into the advisor and into the Council. */
+function connectorRow(s: Snapshot, aw: number, cw: number, w: number): Line {
+  const f = flowOf(s)
+  const marks = councilMarks(s)
+  const ax = Math.floor(aw / 2)
+  const cx = aw + 1 + Math.floor(cw / 2)
+  const adv: Seg = f.advisorPulse !== null ? { t: '▾', c: O.opusHi, b: true } : { t: '╎', c: f.advisorCalls > 0 ? O.edge.advisor : O.faint }
+  const running = marks.some(x => x.tone === 'out')
+  const back = marks.some(x => x.tone === 'back' && x.isPulse)
+  const cou: Seg = running ? { t: '▾', c: O.opus } : back ? { t: '▴', c: O.opusHi, b: true } : { t: '╎', c: marks.some(x => x.tone !== 'idle') ? O.edge.council : O.faint }
+  return fitLine([seg(' '.repeat(ax)), adv, seg(' '.repeat(cx - ax - 1)), cou], w)
 }
 
 // ---- small pieces ------------------------------------------------------------------------
@@ -413,6 +486,9 @@ function jevPanel(s: Snapshot, w: number): Line[] {
   const rows: Line[] = []
   const state = j.status === 'off' ? 'off' : j.status === 'down' ? `down${j.reason ? ` (${j.reason})` : ''}` : j.routing === 'active' ? 'active' : j.routing === 'calibrating' ? 'calibrating' : 'observe only'
   const stateColour = j.status === 'down' ? O.amber : j.routing === 'active' ? O.jevHi : O.dim
+  // A choice Jev just made, drawn as an observation: the panel brightens and says so. Never an arrow, never a handoff.
+  const fl = s.prefs.agentLinks ? flowOf(s) : null
+  const seen = fl !== null && fl.jevPulse !== null && j.status !== 'off'
   const rowFor = (q: string, barW: number): Line => {
     const d = j.last.find(x => x.question === q)
     if (!d) return [seg(q.padEnd(14), O.soft), seg('▱'.repeat(barW), O.faint), seg('  N/A', O.dim)]
@@ -432,10 +508,12 @@ function jevPanel(s: Snapshot, w: number): Line[] {
   }
   const agreed = j.toolChecked > 0 ? `agreed ${j.toolAgreed}/${j.toolChecked}` : 'agreed N/A'
   const isRoomy = inner >= 56
-  const tag: Line = isRoomy ? [seg(`decisions ${j.decisions}`, O.soft), seg('  ', O.faint), seg(state, stateColour)] : [seg(state, stateColour)]
+  const shown = seen ? (fl!.isJevApplied ? 'applied' : 'observed') : state
+  const shownColour = seen ? O.jevHi : stateColour
+  const tag: Line = isRoomy ? [seg(`decisions ${j.decisions}`, O.soft), seg('  ', O.faint), seg(seen ? `◇ ${shown}` : shown, shownColour, seen)] : [seg(seen ? `◇ ${shown}` : shown, shownColour, seen)]
   if (!isRoomy) rows.push([seg(`decisions ${j.decisions}  ·  ${agreed}`, O.dim)])
   else if (j.status !== 'off') rows.push([seg(`sharp ≥ 0.85  ·  ${agreed}  ·  abstained ${j.fallbacks}`, O.dim)])
-  return panel({ title: 'Jev · routing', titleColor: O.jev, edge: O.edge.jev, width: w, rows, tag, accent: true })
+  return panel({ title: 'Jev · routing', titleColor: O.jev, edge: seen ? O.jev : O.edge.jev, width: w, rows, tag, accent: true })
 }
 
 function lastRouteLine(s: Snapshot): Line {
@@ -454,6 +532,7 @@ export function agentRows(list: NexusAgent[], max: number): { shown: NexusAgent[
 
 function haikuPanel(s: Snapshot, w: number, maxRows: number): Line[] {
   const v = visibility(s.prefs)
+  const isStill = s.reduceMotion || s.prefs.animation === 'off'
   const inner = w - 4
   const running = s.agents.filter(a => a.status === 'running').length
   const { shown, hidden } = agentRows(s.agents, maxRows)
@@ -467,7 +546,12 @@ function haikuPanel(s: Snapshot, w: number, maxRows: number): Line[] {
     const tok = v.tokens ? (a.steps === 0 ? 'N/A' : compact(a.tokens.input + a.tokens.output)) : ''
     const task = a.description || a.prompt || 'N/A'
     // Columns that line up from row to row: mark, name, task (the one that shrinks), turns, state, time, tokens.
-    const left: Line = [seg(a.status === 'running' ? `${spinner(s)} ` : `${STATUS_GLYPH[a.status]} `, col), seg(a.label.padEnd(labelW), O.fg, true), flex(task, O.soft)]
+    // With connections on, the first column says what the lead's link to this run is: ▸ given its task, ◂ result handed back, nothing when unproven.
+    const m = s.prefs.agentLinks ? agentMark(agentFlow(s, a)) : null
+    // Done, failed and cancelled are already said by the state glyph; the column adds only ▸ (given its task) and ◂ (result handed back).
+    const link: Line = m ? [m.tone === 'out' || m.tone === 'back' ? markSeg(m, O.haiku, O.haikuHi, isStill) : seg(' '), seg(' ')] : []
+    const isEnding = m !== null && m.tone === 'done' && m.isPulse
+    const left: Line = [...link, seg(a.status === 'running' ? `${spinner(s)} ` : `${STATUS_GLYPH[a.status]} `, isEnding ? O.jevHi : col, isEnding), seg(a.label.padEnd(labelW), O.fg, true), flex(task, O.soft)]
     const right: Line = [seg(`${turns} turns`.padStart(10), O.soft), seg(`  ${a.status.padEnd(7)}`, stateCol)]
     if (dur) right.push(seg(`  ${dur.padStart(6)}`, O.soft))
     if (tok) right.push(seg(`  ${tok.padStart(5)} tok`, O.dim))
@@ -505,11 +589,61 @@ export function tapeRows(log: LogRow[]): LogRow[] {
   return out
 }
 
+const ROLE_NAME: Partial<Record<LogRow['who'], string>> = { search: 'SEARCH', grep: 'GREP', audit: 'AUDIT', test: 'TEST' }
+const SYMBOL: Record<LogRow['kind'], string> = { start: '●', done: '✓', error: '✗', advisor: '◆', mode: '⇄', jev: '◇', info: '·' }
+
+/**
+ * The source of a tape row. With connections on, a delegation the lead made reads SONNET→TEST and its result
+ * handed back SONNET←TEST; both only for a row the data confirmed (flow is set from the Agent call's id).
+ */
+export function tapeLabel(r: LogRow): { label: string; colour: string } {
+  const who = WHO[r.who] ?? WHO.haiku
+  const role = ROLE_NAME[r.who]
+  if (r.flow && role) return { label: `SONNET${r.flow === 'out' ? '→' : '←'}${role}`, colour: who.colour }
+  return { label: role ?? who.label, colour: who.colour }
+}
+
+export const TAPE_FILTERS = ['all', 'agents', 'advisor', 'council', 'jev', 'problems'] as const
+export type TapeFilter = (typeof TAPE_FILTERS)[number]
+
+/** The tape narrowed to one kind of event; anything unknown shows everything. */
+export function filterTape(rows: LogRow[], filter: string | null): LogRow[] {
+  switch (filter) {
+    case 'agents':
+      return rows.filter(r => r.who in ROLE_NAME || r.who === 'haiku')
+    case 'advisor':
+      return rows.filter(r => r.who === 'advisor')
+    case 'council':
+      return rows.filter(r => r.who === 'council')
+    case 'jev':
+      return rows.filter(r => r.who === 'jev')
+    case 'problems':
+      return rows.filter(r => r.kind === 'error')
+    default:
+      return rows
+  }
+}
+
+/** What backs one tape row, in plain words, for the full tape. Empty when the row names nothing to check. */
+export function evidenceOf(r: LogRow, list: NexusAgent[]): string {
+  if (!r.ref) return ''
+  const a = list.find(x => x.id === r.ref)
+  if (!a) return 'the agent is no longer in the list'
+  if (r.flow === 'out') return a.toolUseId ? `delegation confirmed: the Agent call ${a.toolUseId} started it` : 'started, but the Agent call that launched it was not reported'
+  if (r.flow === 'back') return `result handed back to the lead at ${clock(a.returnedAt ?? r.at)} (whether the model read it is not reported)`
+  return a.returnedAt ? `result handed back at ${clock(a.returnedAt)}` : 'its result has not been reported as handed back'
+}
+
 function tapePanel(s: Snapshot, w: number, n: number): Line[] {
   const shown = tapeRows(s.log).slice(-n)
-  const rows: Line[] = shown.map(r => {
+  const links = s.prefs.agentLinks
+  const labels = shown.map(tapeLabel)
+  const lw = links ? Math.min(16, Math.max(8, ...labels.map(l => cells(l.label) + 1))) : 8
+  const rows: Line[] = shown.map((r, i) => {
     const who = WHO[r.who] ?? WHO.haiku
-    return [seg(clock(r.at), O.dim), seg('  '), seg(who.label.padEnd(8), who.colour, true), flex(r.text, KIND_COLOUR[r.kind])]
+    if (!links) return [seg(clock(r.at), O.dim), seg('  '), seg(who.label.padEnd(8), who.colour, true), flex(r.text, KIND_COLOUR[r.kind])]
+    const l = labels[i]!
+    return [seg(clock(r.at), O.dim), seg('  '), seg(l.label + ' '.repeat(Math.max(0, lw - cells(l.label))), l.colour, true), seg(`${SYMBOL[r.kind]} `, KIND_COLOUR[r.kind]), flex(r.text, KIND_COLOUR[r.kind])]
   })
   if (rows.length === 0) rows.push([seg('nothing yet · events appear here as they happen', O.dim)])
   return panel({ title: 'Activity', titleColor: O.opus, edge: O.edge.tape, width: w, rows, tag: [seg(s.agents.some(a => a.status === 'running') || isWorking(s) ? 'live' : 'idle', O.dim)], accent: true })
@@ -611,7 +745,9 @@ function build(s: Snapshot, w: number, isRoomy: boolean): Line[] {
     const leftW = w - rightW - 1
     const right: Line[] = [...advisorPanel(s, rightW)]
     if (showCouncil) right.push(...gap.map(() => blank(rightW)), ...councilPanel(s, rightW))
-    out.push(...beside(leadPanel(s, leftW, isRoomy), leftW, right, rightW))
+    const lead = leadPanel(s, leftW, isRoomy)
+    if (s.prefs.agentLinks) out.push(...besideLinked(lead, leftW, right, rightW, sideLinks(s, advisorPanel(s, rightW).length, gap.length, showCouncil, s.reduceMotion || s.prefs.animation === 'off')))
+    else out.push(...beside(lead, leftW, right, rightW))
   } else {
     out.push(...leadPanel(s, w, isRoomy))
     if (mode === 'stacked' && w >= 76 && showCouncil) {
@@ -620,7 +756,7 @@ function build(s: Snapshot, w: number, isRoomy: boolean): Line[] {
       const cw = w - aw - 1
       // Siblings in one row share a height: the shorter one gets blank rows inside its border, so the bottoms line up.
       const h = Math.max(advisorPanel(s, aw).length, councilPanel(s, cw).length)
-      out.push(...gap, ...beside(advisorPanel(s, aw, h), aw, councilPanel(s, cw, h), cw))
+      out.push(...(s.prefs.agentLinks && isRoomy ? [connectorRow(s, aw, cw, w)] : gap), ...beside(advisorPanel(s, aw, h), aw, councilPanel(s, cw, h), cw))
     } else {
       out.push(...gap, ...advisorPanel(s, w))
       if (showCouncil) out.push(...gap, ...councilPanel(s, w))

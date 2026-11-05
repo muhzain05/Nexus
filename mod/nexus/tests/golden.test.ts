@@ -11,6 +11,15 @@ import dashboard_100 from './golden/dashboard-100'
 import dashboard_120 from './golden/dashboard-120'
 import dashboard_60 from './golden/dashboard-60'
 import dashboard_80 from './golden/dashboard-80'
+import flow_council_120 from './golden/flow-council-120'
+import flow_council_84 from './golden/flow-council-84'
+import flow_delegating_84 from './golden/flow-delegating-84'
+import flow_idle_120 from './golden/flow-idle-120'
+import flow_idle_84 from './golden/flow-idle-84'
+import flow_jev_84 from './golden/flow-jev-84'
+import flow_narrow_62 from './golden/flow-narrow-62'
+import flow_reduced_84 from './golden/flow-reduced-84'
+import flow_returned_100 from './golden/flow-returned-100'
 import four_agents from './golden/four-agents'
 import hole_large from './golden/hole-large'
 import hole_medium from './golden/hole-medium'
@@ -32,6 +41,15 @@ const GOLDEN: Record<string, string[]> = {
   'dashboard-120': dashboard_120,
   'dashboard-60': dashboard_60,
   'dashboard-80': dashboard_80,
+  'flow-council-120': flow_council_120,
+  'flow-council-84': flow_council_84,
+  'flow-delegating-84': flow_delegating_84,
+  'flow-idle-120': flow_idle_120,
+  'flow-idle-84': flow_idle_84,
+  'flow-jev-84': flow_jev_84,
+  'flow-narrow-62': flow_narrow_62,
+  'flow-reduced-84': flow_reduced_84,
+  'flow-returned-100': flow_returned_100,
   'four-agents': four_agents,
   'hole-large': hole_large,
   'hole-medium': hole_medium,
@@ -109,4 +127,9 @@ test('what each screen must show (so a golden is never a screen that hides the p
   for (const r of ['search#1', 'grep#1', 'audit#1', 'test#1']) expect(text('four-agents', 80)).toContain(r)
   expect(text('telemetry-minimal', 100)).not.toMatch(/Usage|Activity|context/)
   expect(text('telemetry-full', 100)).toMatch(/\$12\.99 est/)
+  // The connected screens: the lead's calls out to the subagents and their results coming back.
+  expect(text('flow-delegating-84', 84)).toMatch(/SONNET→SEARCH/)
+  expect(text('flow-returned-100', 100)).toMatch(/SONNET←SEARCH/)
+  expect(text('flow-returned-100', 100)).toMatch(/SONNET←GREP/)
+  expect(text('flow-council-120', 120)).toMatch(/security\s+running/)
 })

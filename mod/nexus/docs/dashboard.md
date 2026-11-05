@@ -52,6 +52,31 @@ Claude Code caps a docked pane at 45% of the terminal, so a 100-column Orbit nee
 
 ![Orbit in a live 62-column pane](screenshots/live-pane-60.png)
 
+## Agent connections
+
+Orbit can draw how work moves: **Appearance → Show agent connections** (`/nexus settings agentLinks on|off`, on by default in Orbit). It is a display setting only. It never changes what agents may do, what Jev may do, or what NEXUS records, and Classic does not use it.
+
+Nothing is drawn that the data does not prove. Each mark comes from an event Claude Code reported:
+
+| You see | It means | Proven by |
+| :--- | :--- | :--- |
+| `▸` in a subagent row | the lead gave this run its task | the Agent call's `tool_use_id` matches the spawn that started it |
+| `◂` in a subagent row | the run's result was **handed back** to the lead | the Agent tool's result for that call (foreground), or the engine's completion notice (background) |
+| `✓` / `✗` / `◌` | finished / failed / cancelled | the run's own stop and turn reports; a failure reported after an early "done" corrects it |
+| `SONNET→TEST` in the tape | a delegation the lead made | the same `tool_use_id` |
+| `SONNET←TEST` in the tape | its result handed back | the same result record |
+| a line from the lead's edge into the advisor | the advisor has been used; it brightens for a moment when a consultation is reported | the lead's own step report (one event: the request and the reply are not reported separately) |
+| `▸` / `◂` on a Council reviewer | running / its result handed to the lead | the reviewer's record |
+| `◇ observed` on Jev | Jev made a choice just now | Jev's answer. It is **never** an arrow and never means a command ran; `applied` appears only when active routing says it acted |
+
+A run with no known Agent call, or a record from another session, gets no mark: nothing is claimed. A quiet dashboard shows only faint structure and nothing moves.
+
+**What cannot be known, so is never drawn:** a timeout (Claude Code does not report one), which subagent started another, whether the lead *read* a result (only that it was handed back), and which action an advisor reply or a Jev choice shaped.
+
+With motion on, a delegation shows as a short signal that starts at the lead (orange) and arrives at the worker (blue), then settles; with reduced motion or animation off the arrival is shown at once and nothing travels. The same rules as the black hole apply: nothing redraws while idle, and the timer stops when the pane closes or the session ends.
+
+The full activity tape (`a`) can be filtered (all, agents, advisor, council, jev, problems) and shows what backs each event, such as which Agent call confirmed a delegation.
+
 ## Motion that means something
 
 Every animation starts from a real event and stops when it ends. When nothing is happening, NEXUS doesn't redraw at all, and reduced motion swaps every animation for a still frame.

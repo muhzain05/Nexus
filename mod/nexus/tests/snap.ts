@@ -14,7 +14,10 @@ export function agent(id: string, type: string, n: number, desc: string, status:
   }
 }
 
-export function snap(over: Partial<Snapshot> = {}, prefs: Prefs = DEFAULT_PREFS): Snapshot {
+/** The connections setting off: the screens of before it existed. The goldens of those screens pin that Off changes nothing. */
+export const NO_LINKS: Prefs = { ...DEFAULT_PREFS, agentLinks: false }
+
+export function snap(over: Partial<Snapshot> = {}, prefs: Prefs = NO_LINKS): Snapshot {
   const council = JSON.parse(JSON.stringify(NEW_COUNCIL)) as Snapshot['council']
   for (const r of ['security', 'architecture', 'performance'] as const) Object.assign(council.reviewers[r], { status: 'done', startedAt: NOW - 90_000, endedAt: NOW - 20_000, findings: r === 'security' ? 2 : 0 })
   council.reviews = 3
@@ -50,7 +53,7 @@ export function snap(over: Partial<Snapshot> = {}, prefs: Prefs = DEFAULT_PREFS)
 }
 
 export function withPrefs(...changes: [string, string][]): Prefs {
-  let p = DEFAULT_PREFS
+  let p = NO_LINKS
   for (const [k, v] of changes) {
     const r = setPref(p, k, v)
     if (!r.ok) throw new Error(r.why)
@@ -60,7 +63,7 @@ export function withPrefs(...changes: [string, string][]): Prefs {
 }
 
 /** Nothing reported: every figure the engine has not seen is null. */
-export function unreported(prefs: Prefs = DEFAULT_PREFS): Snapshot {
+export function unreported(prefs: Prefs = NO_LINKS): Snapshot {
   return snap(
     {
       agents: [], log: [], jev: { ...snap().jev, last: [], decisions: 0, toolChecked: 0, toolAgreed: 0, lastRoute: null },

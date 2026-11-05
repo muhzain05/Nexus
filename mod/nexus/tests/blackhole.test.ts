@@ -70,21 +70,24 @@ test('the event horizon is dark in every frame, in colour and in shades', () => 
   }
 })
 
-test('the dim arc inside the horizon is the only thing lit there, and it is never bright', () => {
+test('the photon ring is a thin bright dotted ring at the horizon\'s edge, never inside it', () => {
   for (const size of ['medium', 'large'] as const) {
     const kinds = litKinds(size)
-    const arc = Object.entries(kinds).filter(([, k]) => k === 'arc').map(([key]) => key)
-    expect(arc.length).toBeGreaterThan(6)
+    const ring = Object.entries(kinds).filter(([, k]) => k === 'ring').map(([key]) => key)
+    expect(ring.length).toBeGreaterThan(10)
+    const dark = new Set(horizonPixels(size))
     const { cols } = DIMENSIONS[size]
-    for (const f of [0, 15, 30, 45]) {
-      const lv = levels(drawBlackHole(size, f / FRAMES))
-      for (const key of arc) {
-        const [x, y] = key.split(',').map(Number)
-        expect(lv[y! * cols + x!]).toBeLessThanOrEqual(3)
-      }
+    const lv = levels(drawBlackHole(size, null))
+    let sum = 0
+    for (const key of ring) {
+      expect(dark.has(key)).toBe(false)
+      const [x, y] = key.split(',').map(Number)
+      sum += lv[y! * cols + x!]!
     }
+    // Brighter than the dome body and the lower arc around it.
+    expect(sum / ring.length).toBeGreaterThanOrEqual(4.8)
   }
-  expect(Object.values(litKinds('small')).includes('arc')).toBe(false)
+  expect(Object.values(litKinds('small')).includes('ring')).toBe(false)
 })
 
 test('the silhouette never changes: the same pixels are lit in every frame', () => {
@@ -155,20 +158,38 @@ test('speed and stillness: 24 s, 36 s on very slow; null, NaN and reduced motion
   expect(blackHole(CYCLE_MS.slow / 2, 'medium', 'slow')).not.toEqual(blackHole(CYCLE_MS.slow / 2, 'medium', 'veryslow'))
 })
 
-test('the palette is eight steps of dark red to amber, each an exact xterm-256 colour', () => {
+test('the palette is eight steps of one amber hue, each an exact xterm-256 colour', () => {
   expect(PALETTE.length).toBe(8)
   const cube = [0, 95, 135, 175, 215, 255]
+  const rgb = (hex: string) => [1, 3, 5].map(i => Number.parseInt(hex.slice(i, i + 2), 16)) as [number, number, number]
   PALETTE.forEach(hex => {
-    const [r, g, b] = [1, 3, 5].map(i => Number.parseInt(hex.slice(i, i + 2), 16))
-    for (const c of [r!, g!, b!]) expect(cube).toContain(c)
+    for (const c of rgb(hex)) expect(cube).toContain(c)
   })
-  // Warm and brightening: red never falls, green never falls, from step to step.
+  // Warm and brightening: red never falls, green never falls, from step to step; blue stays low until the last steps.
   for (let i = 1; i < PALETTE.length; i++) {
-    const a = PALETTE[i - 1]!
-    const b = PALETTE[i]!
-    expect(Number.parseInt(b.slice(1, 3), 16)).toBeGreaterThanOrEqual(Number.parseInt(a.slice(1, 3), 16))
-    expect(Number.parseInt(b.slice(3, 5), 16)).toBeGreaterThanOrEqual(Number.parseInt(a.slice(3, 5), 16))
+    const [r0, g0] = rgb(PALETTE[i - 1]!)
+    const [r1, g1] = rgb(PALETTE[i]!)
+    expect(r1).toBeGreaterThanOrEqual(r0)
+    expect(g1).toBeGreaterThanOrEqual(g0)
   }
+  // The brightest step is a pale gold, the darkest a deep gold: not a red ramp.
+  expect(rgb(PALETTE[7]!)[1]).toBeGreaterThan(200)
+  expect(rgb(PALETTE[0]!)[1]).toBeGreaterThan(0)
+})
+
+test('no step of the palette is red-dominant', () => {
+  PALETTE.forEach(hex => {
+    const [r, g] = [1, 3].map(i => Number.parseInt(hex.slice(i, i + 2), 16)) as [number, number]
+    expect(r > 2.2 * g).toBe(false)
+  })
+})
+
+test('it is mostly black: the large size has between 8% and 28% of its pixels lit, and the smaller ones stay under 28%', () => {
+  const frac = (s: BhSize) => litPixels(s).length / (DIMENSIONS[s].cols * DIMENSIONS[s].rows * 2)
+  expect(frac('large')).toBeGreaterThan(0.08)
+  expect(frac('large')).toBeLessThan(0.28)
+  expect(frac('medium')).toBeLessThan(0.28)
+  expect(frac('small')).toBeLessThan(0.28)
 })
 
 test('it is thin pixel art, not a bar: no tall solid column, few of the very brightest pixels', () => {
@@ -266,8 +287,8 @@ test('frames are built once per size and the cache costs little', () => {
 })
 
 test('the middle of the horizon is dark, checked without the renderer\'s own geometry', () => {
-  // A fixed block in the middle of the dome, a few pixels clear of the arc and of the disk, in every frame.
-  const blocks: Record<'medium' | 'large', [number, number, number, number]> = { medium: [20, 8, 23, 11], large: [29, 11, 34, 16] }
+  // A fixed block in the upper middle of the horizon, a few pixels clear of the ring and of the disk, in every frame.
+  const blocks: Record<'medium' | 'large', [number, number, number, number]> = { medium: [20, 6, 23, 9], large: [29, 7, 34, 12] }
   for (const size of ['medium', 'large'] as const) {
     const [x0, y0, x1, y1] = blocks[size]
     const { cols } = DIMENSIONS[size]

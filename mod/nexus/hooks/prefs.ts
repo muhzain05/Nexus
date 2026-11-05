@@ -20,6 +20,7 @@ export const DEFAULT_PREFS: Prefs = {
   version: 4,
   theme: 'orbit',
   centerpiece: 'blackhole',
+  agentLinks: true,
   animationSpeed: 'slow',
   density: 'comfortable',
   layout: 'auto',
@@ -68,6 +69,7 @@ export function migrate(raw: unknown): Prefs {
     version: 4,
     theme: pick(r.theme, ['classic', 'orbit'], isOlder ? 'classic' : d.theme),
     centerpiece: pick(r.centerpiece, ['blackhole', 'classic', 'off'], d.centerpiece),
+    agentLinks: bool(r.agentLinks, d.agentLinks),
     animationSpeed: pick(r.animationSpeed, ['slow', 'veryslow'], d.animationSpeed),
     density: pick(r.density, ['comfortable', 'compact'], d.density),
     layout: pick(r.layout, ['auto', 'full', 'compact', 'minimal'], d.layout),
@@ -132,6 +134,7 @@ export type Setting = {
 export const SETTINGS: Setting[] = [
   { key: 'theme', section: 'appearance', label: 'Theme', options: ['orbit', 'classic'], help: 'Orbit is the new look; Classic is the original dashboard.', kind: 'display' },
   { key: 'centerpiece', section: 'appearance', label: 'Animation', options: ['blackhole', 'classic', 'off'], help: 'Orbit only: the lead graphic (blackhole, classic orbit, or off).', kind: 'display' },
+  { key: 'agentLinks', section: 'appearance', label: 'Show agent connections', options: ['on', 'off'], help: 'Orbit only: thin lines and marks that show which agent was given which task, and when its result came back. Display only.', kind: 'display' },
   { key: 'animationSpeed', section: 'appearance', label: 'Animation speed', options: ['slow', 'veryslow'], help: 'How slowly the black hole drifts (slow or veryslow).', kind: 'display' },
   { key: 'paneColumns', section: 'appearance', label: 'Layout width', range: [40, PANE_MAX], help: `Columns the pane asks for; ${PANE_MAX} means as wide as allowed (/nexus width max).`, kind: 'display' },
   { key: 'density', section: 'appearance', label: 'Display density', options: ['comfortable', 'compact'], help: 'Orbit only: comfortable adds breathing room; compact fits more.', kind: 'display' },

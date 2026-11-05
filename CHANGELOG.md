@@ -1,5 +1,24 @@
 # Changelog (NEXUS)
 
+## Unreleased (next): Orbit shows how work moves
+Orbit stops being separate status boxes: the lead, advisor, Council, Jev and subagents are connected by marks that follow real events. Stacked on the unreleased 0.8.1 fixes; the version number is left for the release.
+
+### Added
+- **Agent connections** (Appearance → *Show agent connections*, on by default in Orbit, display only). A thin line from the lead's edge to the advisor and to each Council reviewer (a short line down into them in a stacked layout), and a mark in each subagent row: `▸` given its task, `◂` result handed back. Done, failed and cancelled keep the state glyph (failures never get a celebratory pulse). Jev shows `◇ observed` for a moment after a choice and is never drawn as an arrow. Idle shows only faint structure; nothing moves without an event. Reduced motion shows the arrival at once.
+- **Activity tape.** Delegations read `SONNET→TEST` and handed-back results `SONNET←TEST`, only for rows the data confirmed; a source column and state symbols; the full tape filters by kind and shows what backs each event.
+- **Flow model** (`hooks/flow.ts`): pure and derived from the records NEXUS already keeps, so the tape and the connections cannot disagree and there is no new timer or stored state.
+
+### Correctness fixes found while building it
+- A subagent that stopped and was then reported as failed or cancelled **now shows as failed or cancelled** (the generic stop report carries no outcome, and used to win if it came first). A finished run never returns to running.
+- A repeated spawn for a known agent no longer resets a finished record; a new delegation to the same id replaces it and is labelled correctly.
+- A foreground result is recorded as *handed back*; a background launch is not (nothing has come back yet); a background agent is marked once the engine's completion notice arrives. A peer message, which is model-written text, never counts.
+- Records are tagged with their session; a record from another session draws no connection.
+
+### Provenance and limits
+- Directly observed: the delegation (the Agent call's id on both ends), the start, progress, finish, failure, cancellation, the hand-back of a foreground result, a background completion notice, an advisor consultation (one event), Council reviewer lifecycle, and a Jev answer.
+- Cannot be determined, so not drawn: timeouts, nesting between subagents, whether the model read a result, which action an advisor reply or Jev choice shaped, and (from NEXUS code alone) whether the session id stays the same across a reload, compaction or resume, so a record whose session differs just draws no connection.
+- **Black hole.** Refined toward an amber halftone reference: a single amber hue, sparser dots, a thinner dome. Sizes, placement, animation and teardown are unchanged.
+
 ## 0.8.1 (unreleased): Orbit, corrected
 A corrective release, not new features. The 0.8.0 black hole did not look like the approved reference, the dashboard's balance was off, and several things had only been checked on sample data. Everything below was also run in a **live Claude Code 2.1.318 session** (screens and measurements in `mod/nexus/docs/screenshots/live-*`).
 

@@ -1347,7 +1347,7 @@ async function testGate($: EngineInterface, e: Record<string, unknown> & { tool:
     if (out) return refuse(out)
   }
   // A Glob pattern can name a place outside the repository on its own.
-  if (name === 'Glob' && typeof e.pattern === 'string' && (/(^|[{,])[/~]/.test(e.pattern) || /(^|[/{,])\.\.([/},]|$)/.test(e.pattern))) return refuse(`the pattern ${e.pattern.slice(0, 60)} reaches outside the repository`)
+  if (name === 'Glob' && typeof e.pattern === 'string' && (/(^|[{,(|])[/~]/.test(e.pattern) || /(^|[/{,(|])\.\.([/},)|]|$)/.test(e.pattern))) return refuse(`the pattern ${e.pattern.slice(0, 60)} reaches outside the repository`)
   // Each read tool passes on only the fields it documents, as Bash does.
   const allowed = TOOL_FIELDS[name]
   const kept = allowed ? Object.fromEntries(Object.entries(e).filter(([k]) => allowed.has(k) && !LOOSENING.test(k))) : e
@@ -1406,11 +1406,11 @@ async function repoRoot($: EngineInterface, from?: string): Promise<string> {
   return (await repoTop($, dir)) ?? dir
 }
 
-/** The top level of the repository `dir` is in, or null when it is in none (git says so, or cannot be run). */
 /** Directories that were not in a repository, and when that was seen: not asked again for a short while. */
 const notRepos = new Map<string, number>()
 const NOT_REPO_MS = 30_000
 
+/** The top level of the repository `dir` is in, or null when it is in none (git says so, or cannot be run). */
 async function repoTop($: EngineInterface, dir: string): Promise<string | null> {
   const known = topLevels.get(dir)
   if (known) return known
@@ -1419,8 +1419,11 @@ async function repoTop($: EngineInterface, dir: string): Promise<string | null> 
   const r = await git($, ['git', 'rev-parse', '--show-toplevel'], dir, 5_000).catch(() => null)
   const top = r?.exitCode === 0 ? r.stdout.trim() : ''
   if (!top) {
-    notRepos.set(dir, await $.clock.now())
-    capMap(notRepos, 20)
+    // Only git's own answer is remembered. A timeout or a failure to run is not "not a repository": it is asked again.
+    if (r && r.exitCode !== 0 && /not a git repository/i.test(String(r.stderr ?? ''))) {
+      notRepos.set(dir, await $.clock.now())
+      capMap(notRepos, 20)
+    }
     return null
   }
   topLevels.set(dir, top)

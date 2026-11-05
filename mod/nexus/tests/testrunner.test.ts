@@ -205,11 +205,12 @@ test('the gate names every path argument so the caller can follow symlinks', () 
     const v = judgeCommand(c)
     return v.ok ? v.paths : null
   }
-  expect(paths('pytest tests/test_cart.py::test_total -x')).toEqual(['tests/test_cart.py'])
-  expect(paths('rspec spec/cart_spec.rb:12')).toEqual(['spec/cart_spec.rb'])
-  expect(paths('go test ./pkg/... ./cmd')).toEqual(['./pkg', './cmd'])
-  expect(paths('python3 -m unittest discover -s tests -v')).toEqual(['tests'])
-  expect(paths('npm test src/cart.test.ts')).toEqual(['src/cart.test.ts'])
+  // Each argument is named as written and without its selector, so a link named like a selector is still resolved.
+  expect(paths('pytest tests/test_cart.py::test_total -x')).toEqual(['tests/test_cart.py::test_total', 'tests/test_cart.py'])
+  expect(paths('rspec spec/cart_spec.rb:12')).toEqual(['spec/cart_spec.rb:12', 'spec/cart_spec.rb'])
+  expect(paths('go test ./pkg/... ./cmd')).toEqual(['./pkg/...', './pkg', './cmd', './cmd'])
+  expect(paths('python3 -m unittest discover -s tests -v')).toEqual(['tests', 'tests'])
+  expect(paths('npm test src/cart.test.ts')).toEqual(['src/cart.test.ts', 'src/cart.test.ts'])
   expect(paths('make test')).toEqual([])
   expect(paths('jest')).toEqual([])
   expect(pathOf('a/b.py::c')).toBe('a/b.py')

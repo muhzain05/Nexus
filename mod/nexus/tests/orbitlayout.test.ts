@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { blackHole, frames } from '../hooks/blackhole'
-import { O, agentRows, alerts, fitLine, leadPlan, orbitLines, orbitMode, panel, tapeRows, width } from '../hooks/orbitlayout'
+import { O, agentRows, alerts, cells, fitLine, leadPlan, orbitLines, orbitMode, panel, tapeRows, width } from '../hooks/orbitlayout'
 import type { Line } from '../hooks/orbitlayout'
 import { NOW, agent, snap, unreported, withPrefs } from './snap'
 
@@ -313,4 +313,30 @@ test('Council tokens are N/A when no review reported any, never zero', () => {
   const s = snap({}, full)
   s.council.reviewers.security = { ...s.council.reviewers.security, tokens: { input: 12_000, output: 800, cacheRead: 0, cacheWrite: 0 } }
   expect(all(orbitLines(s, 100))).toMatch(/tokens in 12k out 800/)
+})
+
+test('how wide a character is: fixed expectations, not a copy of the table', () => {
+  const w = (s: string) => cells(s)
+  expect(w('a')).toBe(1)
+  expect(w('abc')).toBe(3)
+  expect(w('修复')).toBe(4)
+  expect(w('ｆ')).toBe(2)
+  expect(w('🚀')).toBe(2)
+  expect(w('🎉🔥')).toBe(4)
+  expect(w('🀄')).toBe(2) // mahjong tile, U+1F004
+  expect(w('☀️')).toBe(2) // a symbol with the emoji selector is drawn as an emoji
+  expect(w('☀')).toBe(1) // without it, one cell
+  expect(w('e\u0301')).toBe(1) // e + combining acute
+  expect(w('a\u200db')).toBe(2) // the joiner takes no cell
+  expect(w('▀▄█░')).toBe(4)
+  expect(w('│┌─┐╱')).toBe(5)
+  expect(w('·…')).toBe(2)
+})
+
+test('the left-to-right and right-to-left marks are cleaned too; plain text is untouched', () => {
+  const s = snap({ agents: [agent('b1', 'nexus-test', 1, 'a\u200eb\u200fc\u061cd', 'running', 1, 20, 1000)] })
+  expect(all(orbitLines(s, 100))).not.toMatch(/[\u200e\u200f\u061c]/)
+  expect(all(orbitLines(s, 100))).toMatch(/a·b·c·d/)
+  const plain = snap({ agents: [agent('b2', 'nexus-test', 1, 'run the tests, e.g. “quoted” – dash', 'running', 1, 20, 1000)] })
+  expect(all(orbitLines(plain, 100))).toMatch(/run the tests, e\.g\. “quoted” – dash/)
 })

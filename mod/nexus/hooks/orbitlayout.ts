@@ -42,21 +42,28 @@ export const O = {
 } as const
 
 /** How many terminal cells a character takes: 0 for combining marks and joiners, 2 for wide (CJK, emoji), else 1. */
-function charWidth(cp: number): number {
+export function charWidth(cp: number): number {
   if (cp === 0x200d || (cp >= 0xfe00 && cp <= 0xfe0f) || (cp >= 0x300 && cp <= 0x36f)) return 0
   if (
     (cp >= 0x1100 && cp <= 0x115f) || (cp >= 0x2e80 && cp <= 0xa4cf) || (cp >= 0xac00 && cp <= 0xd7a3) || (cp >= 0xf900 && cp <= 0xfaff) ||
-    (cp >= 0xfe30 && cp <= 0xfe6f) || (cp >= 0xff00 && cp <= 0xff60) || (cp >= 0xffe0 && cp <= 0xffe6) || (cp >= 0x1f300 && cp <= 0x1faff) || (cp >= 0x20000 && cp <= 0x3fffd)
+    (cp >= 0xfe30 && cp <= 0xfe6f) || (cp >= 0xff00 && cp <= 0xff60) || (cp >= 0xffe0 && cp <= 0xffe6) || (cp >= 0x1f000 && cp <= 0x1faff) || (cp >= 0x20000 && cp <= 0x3fffd)
   ) return 2
   return 1
 }
-const cells = (t: string) => {
+export const cells = (t: string) => {
   let n = 0
-  for (const ch of t) n += charWidth(ch.codePointAt(0)!)
+  const chars = [...t]
+  for (let i = 0; i < chars.length; i++) {
+    const cp = chars[i]!.codePointAt(0)!
+    // A symbol followed by the emoji selector (U+FE0F) is drawn as a two-cell emoji.
+    n += chars[i + 1] === '\ufe0f' && cp >= 0x2190 && cp <= 0x2bff ? 2 : charWidth(cp)
+  }
   return n
 }
 /** Text from the model (a task, a log line) with control characters and bidi overrides replaced: nothing in it can move the cursor or reorder the row. */
-const clean = (t: string) => t.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, '·')
+const UNSAFE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/
+const UNSAFE_ALL = new RegExp(UNSAFE.source, 'g')
+const clean = (t: string) => (UNSAFE.test(t) ? t.replace(UNSAFE_ALL, '·') : t)
 export const width = (l: Line) => l.reduce((n, x) => n + cells(x.t), 0)
 const seg = (t: string, c?: string, b?: boolean): Seg => ({ t, c, b })
 const flex = (t: string, c?: string): Seg => ({ t, c, flex: true })

@@ -15,7 +15,7 @@
 
 import { isSecretPath } from './council'
 
-/** `paths` are the arguments that name a file or folder (test names included: whatever exists is checked): the caller resolves each through symlinks and keeps it inside the repository. */
+/** `paths` are the arguments that name a file or folder, each as written and without its test selector (test names included: whatever exists is checked): the caller resolves each through symlinks and keeps it inside the repository. */
 export type Verdict = { ok: true; runner: string; paths: string[] } | { ok: false; why: string }
 
 /** A path argument without the test selector after it (`file.py::test`, `file.rb:12`, `pkg/...`). */
@@ -36,9 +36,9 @@ export const BASH_FIELDS: ReadonlySet<string> = new Set(['tool', 'agentId', 'too
 /** The fields each read tool documents; anything else the agent sent is not passed on. */
 const IDENTITY = ['tool', 'agentId', 'tool_use_id']
 export const TOOL_FIELDS: Record<string, ReadonlySet<string>> = {
-  Read: new Set([...IDENTITY, 'file_path', 'offset', 'limit']),
+  Read: new Set([...IDENTITY, 'file_path', 'offset', 'limit', 'pages']),
   Glob: new Set([...IDENTITY, 'pattern', 'path']),
-  Grep: new Set([...IDENTITY, 'pattern', 'path', 'glob', 'type', 'output_mode', '-i', '-n', '-A', '-B', '-C', 'context', 'multiline', 'head_limit', 'offset']),
+  Grep: new Set([...IDENTITY, 'pattern', 'path', 'glob', 'type', 'output_mode', '-i', '-n', '-o', '-A', '-B', '-C', 'context', 'multiline', 'head_limit', 'offset']),
 }
 
 /** Bash input fields that would loosen a sandbox or a permission (or claim an approval): dropped from the call, so the agent cannot widen what it may do through the call's own fields. */
@@ -253,7 +253,7 @@ function check(spec: Spec, args: Word[], paths: string[]): string | null {
       }
       const bad = valueProblem(kind, value, name)
       if (bad) return bad
-      if (kind === 'path') paths.push(pathOf(value))
+      if (kind === 'path') paths.push(value, pathOf(value))
       continue
     }
     if (spec.goals) {
@@ -264,12 +264,12 @@ function check(spec: Spec, args: Word[], paths: string[]): string | null {
     if (spec.positional !== 'path') return `${w.slice(0, 40)}: this command takes no extra words`
     // A positional word: a path or a test name. Quoting may carry spaces and brackets (a test id); nothing else.
     if (rest[i]!.quoted && /^[A-Za-z0-9_.@%+=,:/ [\]#-]{1,200}$/.test(w) && !/(^|\/)\.\.(\/|$)/.test(w) && !pathProblem(w.replace(/[ [\]#]/g, '_'))) {
-      paths.push(pathOf(w))
+      paths.push(w, pathOf(w))
       continue
     }
     const bad = pathProblem(w)
     if (bad) return bad
-    paths.push(pathOf(w))
+    paths.push(w, pathOf(w))
   }
   if (spec.goals && goals === 0) return `name the target: ${spec.goals.map(g => `\`${g}\``).join(' or ')}`
   return null

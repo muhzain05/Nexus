@@ -6,18 +6,19 @@ const pane = { plugin: 'nexus', component: 'Pane', requestId: 'nexus', surface: 
 /** The tool calls that got past NEXUS to the engine, as the engine would have run them. */
 let failPrefs = false
 /** What exists, and where each path really leads: `links` is a symlink table. A path in neither does not exist. */
-const fsWorld: { exists: Set<string>; links: Record<string, string>; unreadable: Set<string>; cwd: string; stats: string[]; runs: string[]; failDownstream: boolean } = { exists: new Set(), links: {}, unreadable: new Set(), cwd: '/repo', stats: [], runs: [], failDownstream: false }
+const fsWorld: { exists: Set<string>; links: Record<string, string>; unreadable: Set<string>; cwd: string; stats: string[]; runs: string[]; failDownstream: boolean; git: 'notrepo' | 'timeout' } = { exists: new Set(), links: {}, unreadable: new Set(), cwd: '/repo', stats: [], runs: [], failDownstream: false, git: 'notrepo' }
 
 function engine(on: On, stored: Record<string, unknown> = {}) {
   const reached: Record<string, unknown>[] = []
   failPrefs = false
-  fsWorld.exists = new Set(['/repo', '/repo/tests', '/repo/tests/test_cart.py', '/repo/src', '/repo/outside-link', '/repo/inside-link', '/repo/notes', '/etc'])
-  fsWorld.links = { '/repo/outside-link': '/etc', '/repo/inside-link': '/repo/src', '/repo/notes': '/repo/.env' }
+  fsWorld.exists = new Set(['/repo', '/repo/tests', '/repo/tests/test_cart.py', '/repo/src', '/repo/outside-link', '/repo/inside-link', '/repo/notes', '/repo/evil[1]', '/etc'])
+  fsWorld.links = { '/repo/outside-link': '/etc', '/repo/inside-link': '/repo/src', '/repo/notes': '/repo/.env', '/repo/evil[1]': '/etc' }
   fsWorld.unreadable = new Set()
   fsWorld.cwd = '/repo'
   fsWorld.stats = []
   fsWorld.runs = []
   fsWorld.failDownstream = false
+  fsWorld.git = 'notrepo'
   on('session.cwd', () => ({ value: fsWorld.cwd }) as any)
   on('fs.stat', (_, e) => {
     const path = String((e as { path?: unknown }).path)
@@ -35,7 +36,12 @@ function engine(on: On, stored: Record<string, unknown> = {}) {
   on('session.id', () => ({ value: 's' }))
   on('session.model', () => ({ value: 'claude-sonnet-5-5' }))
   on('config.list', () => ({ value: [] }))
-  on('process.run', (_, e) => (fsWorld.runs.push(JSON.stringify((e as { argv?: unknown }).argv ?? e)), { value: { exitCode: 44, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('process.run', (_, e) => {
+    fsWorld.runs.push(JSON.stringify((e as { argv?: unknown }).argv ?? e))
+    // git's own answer outside a repository, or a failure that says nothing about one (a timeout).
+    const stderr = fsWorld.git === 'notrepo' ? 'fatal: not a git repository (or any of the parent directories): .git' : ''
+    return { value: { exitCode: fsWorld.git === 'notrepo' ? 128 : 1, stdout: '', stderr, isStdoutTruncated: false, isStderrTruncated: false } }
+  })
   on('fs.read', () => {
     throw new Error('none')
   })
@@ -441,4 +447,43 @@ test('council round 4: each read tool passes on only the fields it documents', a
   expect(JSON.stringify(reached.at(-1))).not.toMatch(/shell/)
   await call($, { tool: 'Glob', pattern: 'src/**/*.ts', path: 'src', workdir: '/', agentId: 'agent-1' })
   expect(JSON.stringify(reached.at(-1))).not.toMatch(/workdir/)
+})
+
+test('council round 5: a link whose own name has a selector-like ending is resolved as written, not as its stripped name', async ($, on) => {
+  const reached = engine(on)
+  await start($)
+  await spawn($, 'nexus-test', 'tu1')
+  const n = reached.length
+  expect(denied(await call($, { tool: 'Bash', command: 'pytest "evil[1]"', agentId: 'agent-1' }))).toMatch(/leads outside the repository/)
+  expect(reached.length).toBe(n)
+})
+
+test('council round 5: only git\'s own "not a repository" is remembered; a failure that says nothing is asked again', async ($, on) => {
+  engine(on)
+  await start($)
+  await spawn($, 'nexus-test', 'tu1')
+  fsWorld.git = 'timeout'
+  await call($, { tool: 'Read', file_path: '/repo/tests/test_cart.py', agentId: 'agent-1' })
+  const a = fsWorld.runs.length
+  await call($, { tool: 'Read', file_path: '/repo/tests/test_cart.py', agentId: 'agent-1' })
+  expect(fsWorld.runs.length).toBeGreaterThan(a)
+  // Once git has said so, it is not asked again.
+  fsWorld.git = 'notrepo'
+  await call($, { tool: 'Read', file_path: '/repo/tests/test_cart.py', agentId: 'agent-1' })
+  const b = fsWorld.runs.length
+  await call($, { tool: 'Read', file_path: '/repo/tests/test_cart.py', agentId: 'agent-1' })
+  expect(fsWorld.runs.length).toBe(b)
+})
+
+test('council round 5: extglob groups and the read tools\' own optional fields', async ($, on) => {
+  const reached = engine(on)
+  await start($)
+  await spawn($, 'nexus-test', 'tu1')
+  const n = reached.length
+  for (const pattern of ['@(/etc)/*', '+(~)/x', '@(..)/x', 'a|/etc/*', '!(src|/etc)/*']) expect(denied(await call($, { tool: 'Glob', pattern, agentId: 'agent-1' }))).toMatch(/reaches outside the repository/)
+  expect(reached.length).toBe(n)
+  await call($, { tool: 'Grep', pattern: 'x', path: 'src', '-o': true, agentId: 'agent-1' })
+  expect(reached.at(-1)).toMatchObject({ '-o': true })
+  await call($, { tool: 'Read', file_path: '/repo/tests/test_cart.py', pages: '1-3', agentId: 'agent-1' })
+  expect(reached.at(-1)).toMatchObject({ pages: '1-3' })
 })

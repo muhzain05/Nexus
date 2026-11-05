@@ -98,13 +98,17 @@ test('the silhouette never changes: the same pixels are lit in every frame', () 
 test('only brightness moves, and never by more than one palette step from the resting picture', () => {
   for (const size of SIZES) {
     const rest = levels(drawBlackHole(size, null))
+    let tooFar = 0
+    let dark = 0
     for (let f = 0; f < FRAMES; f += 3) {
       levels(drawBlackHole(size, f / FRAMES)).forEach((v, i) => {
         if (v === null) return
-        expect(Math.abs(v - rest[i]!)).toBeLessThanOrEqual(1)
-        expect(v).toBeGreaterThanOrEqual(1)
+        if (Math.abs(v - rest[i]!) > 1) tooFar++
+        if (v < 1) dark++
       })
     }
+    expect(tooFar).toBe(0)
+    expect(dark).toBe(0)
   }
 })
 
@@ -112,6 +116,7 @@ test('no flashing: neighbouring frames differ by at most one step, in a minority
   for (const size of SIZES) {
     const list = frames(size).map(levels)
     let worst = 0
+    let jumps = 0
     list.forEach((a, i) => {
       const b = list[(i + 1) % list.length]!
       let changed = 0
@@ -120,14 +125,16 @@ test('no flashing: neighbouring frames differ by at most one step, in a minority
         if (v === null) return
         litCount++
         const d = Math.abs(v - b[k]!)
-        expect(d).toBeLessThanOrEqual(1)
+        if (d > 1) jumps++
         if (d) changed++
       })
       worst = Math.max(worst, changed / litCount)
     })
+    expect(jumps).toBe(0)
     expect(worst).toBeLessThan(0.3)
-    // ...and it does move: not a still picture.
-    expect(new Set(frames(size).map(f => JSON.stringify(f))).size).toBeGreaterThan(FRAMES / 2)
+    // ...and it does move: not a still picture (distinct frames, compared cheaply by their colour runs).
+    const keys = new Set(frames(size).map(f => f.map(r => r.map(x => x.fg + x.bg).join('')).join('|')))
+    expect(keys.size).toBeGreaterThan(FRAMES / 2)
   }
 })
 

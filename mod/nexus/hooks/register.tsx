@@ -803,7 +803,8 @@ async function patchAgent($: EngineInterface, id: string, change: (a: NexusAgent
 }
 
 /**
- * Ends an agent's run. A failed or cancelled run is final, and nothing ever returns to running here. The one exception
+ * Ends an agent's run. A failed or cancelled run is final, and nothing returns to running in this function (a continuation
+ * is a new run: agent.spawn starts a fresh record for it). The one exception
  * is a 'done' (from SubagentStop, which says an agent stopped, never how): the turn's own report of an error, a refusal
  * or an abort may follow and corrects it. A correction adds one tape row, not a second completion pulse.
  */

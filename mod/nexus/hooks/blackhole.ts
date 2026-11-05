@@ -266,8 +266,8 @@ export function drawBlackHole(size: BhSize, t: number | null, isMono = false): B
     const runs: BhRun[] = []
     const push = (text: string, fg?: string, bg?: string) => {
       // Only runs of empty space merge. Every coloured cell is its own run, so a frame's run list has the
-      // same shape in every frame: a colour that changes never joins or splits its neighbours, and a
-      // renderer comparing frames run by run sees exactly the cells that changed.
+      // same shape in every frame: a colour that changes never joins or splits its neighbours, so the pane's
+      // elements keep their place from one frame to the next (its rows are keyed by position).
       const last = runs.at(-1)
       if (last && !fg && !bg && !last.fg && !last.bg) last.text += text
       else runs.push({ text, fg, bg })

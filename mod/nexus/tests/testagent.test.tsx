@@ -6,7 +6,7 @@ const pane = { plugin: 'nexus', component: 'Pane', requestId: 'nexus', surface: 
 /** The tool calls that got past NEXUS to the engine, as the engine would have run them. */
 let failPrefs = false
 /** What exists, and where each path really leads: `links` is a symlink table. A path in neither does not exist. */
-const fsWorld: { exists: Set<string>; links: Record<string, string>; unreadable: Set<string> } = { exists: new Set(), links: {}, unreadable: new Set() }
+const fsWorld: { exists: Set<string>; links: Record<string, string>; unreadable: Set<string>; cwd: string; stats: string[]; failDownstream: boolean } = { exists: new Set(), links: {}, unreadable: new Set(), cwd: '/repo', stats: [], failDownstream: false }
 
 function engine(on: On, stored: Record<string, unknown> = {}) {
   const reached: Record<string, unknown>[] = []
@@ -14,8 +14,13 @@ function engine(on: On, stored: Record<string, unknown> = {}) {
   fsWorld.exists = new Set(['/repo', '/repo/tests', '/repo/tests/test_cart.py', '/repo/src', '/repo/outside-link', '/repo/inside-link', '/etc'])
   fsWorld.links = { '/repo/outside-link': '/etc', '/repo/inside-link': '/repo/src' }
   fsWorld.unreadable = new Set()
+  fsWorld.cwd = '/repo'
+  fsWorld.stats = []
+  fsWorld.failDownstream = false
+  on('session.cwd', () => ({ value: fsWorld.cwd }) as any)
   on('fs.stat', (_, e) => {
     const path = String((e as { path?: unknown }).path)
+    fsWorld.stats.push(path)
     if (fsWorld.unreadable.has(path)) return { deny: 'EIO: i/o error' } as any
     if (!fsWorld.exists.has(path)) return { deny: 'ENOENT: no such file' } as any
     return { value: { kind: 'file', size: 1, mtimeMs: 0, isLink: path in fsWorld.links, realPath: fsWorld.links[path] ?? path } } as any
@@ -39,7 +44,11 @@ function engine(on: On, stored: Record<string, unknown> = {}) {
   let n = 0
   on('agent.spawn', (_, e) => ({ model: 'claude-haiku-5-5', agentId: `agent-${++n}`, ...(e.subagentType ? {} : {}) }))
   on('classic.SubagentStop', () => ({}))
-  on('tool.call', (_, e) => (reached.push(e as unknown as Record<string, unknown>), { result: { ok: true } as any }))
+  on('tool.call', (_, e) => {
+    if (fsWorld.failDownstream) throw new Error('engine fell over')
+    reached.push(e as unknown as Record<string, unknown>)
+    return { result: { ok: true } as any }
+  })
   return reached
 }
 const spawn = ($: any, subagentType: string, tool_use_id: string) =>
@@ -272,14 +281,106 @@ test('fresh review: the agent cannot widen what it may run by what it says or wh
   expect(JSON.stringify(sent)).not.toMatch(/permission|allowed|approved|elevated/i)
 })
 
-test('fresh review: the same refusals hold whatever the theme, and an invalid stored value never loosens them', async ($, on) => {
-  for (const theme of ['orbit', 'classic']) {
+for (const theme of ['orbit', 'classic'] as const) {
+  test(`fresh review: the same refusals hold on the ${theme} theme, and an invalid stored value never loosens them`, async ($, on) => {
     const reached = engine(on, { theme, testRunner: 'everything' })
     await start($)
     await spawn($, 'nexus-test', `tu-${theme}`)
     const n = reached.length
     expect(denied(await call($, { tool: 'Bash', command: 'git push --force', agentId: 'agent-1' }))).toMatch(/not a known test command/)
     expect(reached.length).toBe(n)
-    return
-  }
+  })
+}
+
+test('council round 3: a deep missing path under a symlinked folder is judged by the folder, however deep', async ($, on) => {
+  const reached = engine(on)
+  await start($)
+  await spawn($, 'nexus-test', 'tu1')
+  const n = reached.length
+  const deep = `outside-link/${'a/'.repeat(45)}x.py`
+  expect(denied(await call($, { tool: 'Bash', command: `pytest ${deep}`, agentId: 'agent-1' }))).toMatch(/leads outside the repository/)
+  expect(reached.length).toBe(n)
+})
+
+test('council round 3: when no part of a path can be found at all, it is refused rather than allowed', async ($, on) => {
+  const reached = engine(on)
+  await start($)
+  await spawn($, 'nexus-test', 'tu1')
+  fsWorld.exists = new Set()
+  const n = reached.length
+  expect(denied(await call($, { tool: 'Bash', command: 'pytest tests', agentId: 'agent-1' }))).toMatch(/could not find any part of tests/)
+  expect(reached.length).toBe(n)
+})
+
+test('council round 3: a session whose directory is spelled through a symlink still runs plain test names, and still refuses an escaping link', async ($, on) => {
+  const reached = engine(on)
+  await start($)
+  await spawn($, 'nexus-test', 'tu1')
+  fsWorld.cwd = '/tmp/repo'
+  fsWorld.exists = new Set(['/tmp/repo', '/private/tmp/repo', '/tmp/repo/outside-link', '/etc'])
+  fsWorld.links = { '/tmp/repo': '/private/tmp/repo', '/tmp/repo/outside-link': '/etc' }
+  await call($, { tool: 'Bash', command: 'cargo test some_test_name', agentId: 'agent-1' })
+  expect(reached.at(-1)).toMatchObject({ command: 'cargo test some_test_name' })
+  const n = reached.length
+  expect(denied(await call($, { tool: 'Bash', command: 'pytest outside-link', agentId: 'agent-1' }))).toMatch(/leads outside the repository/)
+  expect(reached.length).toBe(n)
+})
+
+test('council round 3: Read, Glob and Grep stay inside the repository like a Bash argument', async ($, on) => {
+  const reached = engine(on)
+  await start($)
+  await spawn($, 'nexus-test', 'tu1')
+  const n = reached.length
+  const as = (input: Record<string, unknown>) => call($, { ...input, agentId: 'agent-1' })
+  expect(denied(await as({ tool: 'Read', file_path: '/etc/hosts' }))).toMatch(/leads outside the repository/)
+  expect(denied(await as({ tool: 'Read', file_path: 'outside-link/hosts' }))).toMatch(/leads outside the repository/)
+  expect(denied(await as({ tool: 'Glob', pattern: '*.conf', path: '/etc' }))).toMatch(/leads outside the repository/)
+  expect(denied(await as({ tool: 'Glob', pattern: '/etc/*' }))).toMatch(/reaches outside the repository/)
+  expect(denied(await as({ tool: 'Glob', pattern: '../other/**' }))).toMatch(/reaches outside the repository/)
+  expect(denied(await as({ tool: 'Glob', pattern: '{a,../b}/*' }))).toMatch(/reaches outside the repository/)
+  expect(denied(await as({ tool: 'Grep', pattern: 'x', path: '/etc' }))).toMatch(/leads outside the repository/)
+  expect(reached.length).toBe(n)
+  await as({ tool: 'Read', file_path: '/repo/tests/test_cart.py' })
+  expect(reached.at(-1)).toMatchObject({ tool: 'Read' })
+  await as({ tool: 'Grep', pattern: 'total', path: 'src' })
+  expect(reached.at(-1)).toMatchObject({ tool: 'Grep', path: 'src' })
+  await as({ tool: 'Glob', pattern: 'src/**/*.ts' })
+  expect(reached.at(-1)).toMatchObject({ tool: 'Glob' })
+})
+
+test('council round 3: only the fields a test run needs reach the engine; a working directory or environment the agent sent does not', async ($, on) => {
+  const reached = engine(on)
+  await start($)
+  await spawn($, 'nexus-test', 'tu1')
+  await call($, { tool: 'Bash', command: 'pytest tests', description: 'run the cart tests', cwd: '/etc', env: { PYTHONPATH: '/tmp/evil' }, workdir: '/', shell: '/bin/sh', input: 'x', agentId: 'agent-1' })
+  const sent = reached.at(-1)!
+  expect(Object.keys(sent).sort()).toEqual(['agentId', 'command', 'description', 'run_in_background', 'timeout', 'tool', 'tool_use_id'].filter(k => k in sent).sort())
+  expect(sent).toMatchObject({ command: 'pytest tests', description: 'run the cart tests', run_in_background: false })
+  expect(JSON.stringify(sent)).not.toMatch(/\/etc|PYTHONPATH|workdir|shell/)
+})
+
+test('council round 3: if the engine fails while passing the call on, nothing unfiltered reaches it and the agent gets an error, not a second attempt', async ($, on) => {
+  const reached = engine(on)
+  await start($)
+  await spawn($, 'nexus-test', 'tu1')
+  const n = reached.length
+  fsWorld.failDownstream = true
+  const out = denied(await call($, { tool: 'Bash', command: 'npm test', permissionMode: 'bypassPermissions', agentId: 'agent-1' }))
+  expect(out).toMatch(/deny/)
+  expect(reached.length).toBe(n)
+  // And once the engine recovers the same call runs, filtered.
+  fsWorld.failDownstream = false
+  await call($, { tool: 'Bash', command: 'npm test', permissionMode: 'bypassPermissions', agentId: 'agent-1' })
+  expect(JSON.stringify(reached.at(-1))).not.toMatch(/permission/i)
+})
+
+test('council round 3: the repository root is stat-ed once, not on every call', async ($, on) => {
+  engine(on)
+  await start($)
+  await spawn($, 'nexus-test', 'tu1')
+  fsWorld.stats = []
+  await call($, { tool: 'Bash', command: 'pytest tests/test_cart.py', agentId: 'agent-1' })
+  await call($, { tool: 'Bash', command: 'pytest tests/test_cart.py -x', agentId: 'agent-1' })
+  await call($, { tool: 'Read', file_path: '/repo/tests/test_cart.py', agentId: 'agent-1' })
+  expect(fsWorld.stats.filter(p => p === '/repo').length).toBe(1)
 })

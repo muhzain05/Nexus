@@ -19,7 +19,7 @@ const pane = (bodyColumns: number) =>
 
 let reads = 0
 
-function engine(on: On, opts: { reduceMotion?: boolean; prefs?: Record<string, unknown> } = {}) {
+function engine(on: On, opts: { reduceMotion?: boolean; prefs?: Record<string, unknown>; placed?: boolean } = {}) {
   const clock = mock.clock(on, { now: 1_000_000 })
   reads = 0
   // Every frame writes the tick: counting those writes counts frames.
@@ -40,7 +40,7 @@ function engine(on: On, opts: { reduceMotion?: boolean; prefs?: Record<string, u
     throw new Error('no agent definition here')
   })
   on('command.register', () => ({ value: { command: 'x' } }))
-  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.open', () => ({ value: opts.placed === false ? { isPlaced: false as const, reason: 'no room' } : { isPlaced: true as const } }))
   on('ui.close', () => ({ value: undefined }) as any)
   on('session.end', () => ({ sessionId: 's' }) as any)
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -221,4 +221,24 @@ test('teardown: Cache Guard and the frame timer together leave nothing running a
   const ended = reads
   await clock.advance(2 * 60 * 60 * 1000)
   expect(reads).toBe(ended)
+})
+
+test('teardown: a minimal layout never opens the pane, so no frame timer runs for it', async ($, on) => {
+  const clock = engine(on, { prefs: { layout: 'minimal' } })
+  await start($)
+  const t0 = reads
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await clock.advance(10_000)
+  expect(reads).toBe(t0)
+})
+
+test('teardown: a pane the engine did not seat (an unplaced open) gets no frame timer', async ($, on) => {
+  const clock = engine(on, { placed: false })
+  await start($)
+  await ($ as any).command.run({ command: 'nexus', args: '' })
+  await clock.advance(1000)
+  const t0 = reads
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await clock.advance(10_000)
+  expect(reads).toBe(t0)
 })

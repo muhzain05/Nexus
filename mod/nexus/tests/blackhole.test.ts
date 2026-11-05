@@ -133,7 +133,7 @@ test('no flashing: neighbouring frames differ by at most one step, in a minority
     expect(jumps).toBe(0)
     expect(worst).toBeLessThan(0.3)
     // ...and it does move: not a still picture (distinct frames, compared cheaply by their colour runs).
-    const keys = new Set(frames(size).map(f => f.map(r => r.map(x => x.fg + x.bg).join('')).join('|')))
+    const keys = new Set(frames(size).map(f => f.map(r => r.map(x => `${x.fg ?? ''}${x.bg ?? ''}`).join('')).join('|')))
     expect(keys.size).toBeGreaterThan(FRAMES / 2)
   }
 })

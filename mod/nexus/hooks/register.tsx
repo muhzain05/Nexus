@@ -69,7 +69,7 @@ import {
   within,
 } from './council'
 import type { PathCtx, Snapshot as ReviewSnapshot } from './council'
-import { ALLOWED_TOOLS as TEST_TOOLS, LOOSENING, cappedTimeout, judgeCommand, parseReport, reportLine } from './testrunner'
+import { ALLOWED_TOOLS as TEST_TOOLS, BASH_FIELDS, LOOSENING, cappedTimeout, judgeCommand, parseReport, reportLine } from './testrunner'
 import { AboutView, HelpView, NEXUS_VERSION, OutputView, aboutText, helpText } from './docs'
 import { DEFAULT_PREFS, PANE_MAX, SECTIONS, SETTINGS, defaultValue, exportPrefs, migrate, prefValue, resetAll, resetSection, resolveLayout, setPref } from './prefs'
 import type { SectionId } from './prefs'
@@ -1277,31 +1277,33 @@ const reviewerEnds = new Map<string, ReviewerEnd>()
 /** Agents running as the Test agent (`nexus-test`): their Bash calls are checked. Bounded; the agents list is a second source. */
 const testAgents = new Set<string>()
 
-/** Why a path argument may not be used (it leads outside the repository, or where it leads cannot be told), or null. */
+/**
+ * Why `arg` may not be used (it leads outside the repository, or where it leads cannot be told), or null. The path is
+ * resolved through symlinks; one that does not exist yet is judged by its nearest existing parent, all the way up, and
+ * if no part of it can be found the answer is no.
+ */
+async function pathProblemAt($: EngineInterface, arg: string, base: string, realRoot: string): Promise<string | null> {
+  let dir = normalizePath(arg, base)
+  // A path has at most a few hundred segments (a command is capped at 400 characters): the walk always ends.
+  for (let hops = 0; hops < 512; hops++) {
+    const real = await realOf($, dir)
+    if (real === UNRESOLVED) return `NEXUS could not tell where ${arg} leads`
+    if (real !== null) return within(real, realRoot) ? null : `${arg} leads outside the repository (through a symlink or its own location)`
+    if (dir === '/') break
+    dir = dir.slice(0, Math.max(1, dir.lastIndexOf('/')))
+  }
+  return `NEXUS could not find any part of ${arg}, so it cannot tell where it leads`
+}
+
+/** The first problem with any path in `paths`, or null. The repository is the session's own, not whatever review is open. */
 async function pathsEscape($: EngineInterface, paths: string[]): Promise<string | null> {
   const base = await liveCwd($)
-  const root = (await reviewRoot($, base)) ?? base
-  const realRoot = await realOf($, root)
-  if (realRoot === null || realRoot === UNRESOLVED) return 'NEXUS could not tell where the repository is, so no path can be checked'
+  const root = (await repoTop($, base)) ?? base
+  const realRoot = await cachedRealRoot($, root)
+  if (realRoot === UNRESOLVED) return 'NEXUS could not tell where the repository is, so no path can be checked'
   for (const arg of paths) {
-    const target = normalizePath(arg, base)
-    const real = await realOf($, target)
-    if (real === UNRESOLVED) return `NEXUS could not tell where ${arg} leads`
-    if (real !== null && !within(real, realRoot)) return `${arg} leads outside the repository (through a symlink or its own location)`
-    if (real === null) {
-      // Not there (yet): its nearest existing parent decides, so a file under a symlinked folder cannot slip out.
-      if (!within(target, root) && !within(target, realRoot)) return `${arg} is outside the repository`
-      let dir = target
-      for (let hops = 0; hops < 40 && dir.length > 1; hops++) {
-        dir = dir.slice(0, Math.max(1, dir.lastIndexOf('/')))
-        const up = await realOf($, dir)
-        if (up === UNRESOLVED) return `NEXUS could not tell where ${arg} leads`
-        if (up !== null) {
-          if (!within(up, realRoot)) return `${arg} leads outside the repository (through a symlink or its own location)`
-          break
-        }
-      }
-    }
+    const why = await pathProblemAt($, arg, base, realRoot)
+    if (why) return why
   }
   return null
 }
@@ -1323,11 +1325,23 @@ async function testGate($: EngineInterface, e: Record<string, unknown> & { tool:
     // Every path argument, with symlinks followed, must stay inside the repository the session is in.
     const escape = await pathsEscape($, verdict.paths)
     if (escape) return refuse(escape)
-    // The call the engine sees: the agent's own fields, minus anything that loosens a sandbox, with our limits.
-    const kept = Object.fromEntries(Object.entries(e).filter(([k]) => !LOOSENING.test(k)))
+    // The call the engine sees: only the fields a test run needs, with our limits. Anything else the agent
+    // sent (a working directory, an environment, a claim of approval) is not passed on.
+    const kept = Object.fromEntries(Object.entries(e).filter(([k]) => BASH_FIELDS.has(k) && !LOOSENING.test(k)))
     return { input: { ...kept, timeout: cappedTimeout(e.timeout), run_in_background: false } as never }
   }
-  if (name === 'Read' && typeof e.file_path === 'string' && isSecretPath(e.file_path)) return refuse(`${e.file_path} looks like a secret file`)
+  // Read, Glob and Grep stay inside the repository too, by the same resolution as a Bash argument.
+  if (name === 'Read' && typeof e.file_path === 'string') {
+    if (isSecretPath(e.file_path)) return refuse(`${e.file_path} looks like a secret file`)
+    const out = await pathsEscape($, [e.file_path])
+    if (out) return refuse(out)
+  }
+  if ((name === 'Glob' || name === 'Grep') && typeof e.path === 'string') {
+    const out = await pathsEscape($, [e.path])
+    if (out) return refuse(out)
+  }
+  // A Glob pattern can name a place outside the repository on its own.
+  if (name === 'Glob' && typeof e.pattern === 'string' && (/^[/~]/.test(e.pattern) || /(^|[/{,])\.\.([/},]|$)/.test(e.pattern))) return refuse(`the pattern ${e.pattern.slice(0, 60)} reaches outside the repository`)
   return { input: (name === 'Grep' ? { ...e, glob: guardGrepGlob(e.glob) } : e) as never }
 }
 
@@ -1468,6 +1482,18 @@ async function lineCounts($: EngineInterface, files: string[], dir: string): Pro
 }
 
 const realRoots = new Map<string, string>()
+/** Where a repository root really lands (symlinks followed), cached; a root that could not be resolved is never cached, so one passing stat error refuses one call, not every later one. */
+async function cachedRealRoot($: EngineInterface, root: string): Promise<string> {
+  let real = realRoots.get(root)
+  if (real === undefined) {
+    real = (await realOf($, root)) ?? root
+    if (real !== UNRESOLVED) {
+      realRoots.set(root, real)
+      capMap(realRoots, 20)
+    }
+  }
+  return real
+}
 /** Where a path really lands. null: it does not exist (yet). UNRESOLVED: it could not be told, which mayCall refuses. */
 const realOf = async ($: EngineInterface, path: string): Promise<string | null> => {
   try {
@@ -1485,15 +1511,7 @@ async function reviewerPathCtx($: EngineInterface, input: Record<string, unknown
   const base = fixedBase ?? (await liveCwd($))
   const root = fixedRoot ?? (await reviewRoot($, base))
   if (!root) return undefined
-  let real = realRoots.get(root)
-  if (real === undefined) {
-    real = (await realOf($, root)) ?? root
-    // A root that could not be resolved refuses this call only: cached, one passing stat error would refuse every later read.
-    if (real !== UNRESOLVED) {
-      realRoots.set(root, real)
-      capMap(realRoots, 20)
-    }
-  }
+  const real = await cachedRealRoot($, root)
   const path = ['file_path', 'path'].map(k => input[k]).find(v => typeof v === 'string') as string | undefined
   if (path) return { base, roots: [root], realRoots: [real], realPath: await realOf($, normalizePath(path, base)) }
   // No path: the tool searches the session's directory, which may be spelled through a symlink.
@@ -1965,7 +1983,7 @@ export const register: Register = (on, options) => {
     if (!call) return next(e)
     if ('deny' in call) return { deny: call.deny }
     return next(call.input)
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (e.agentId && testAgents.has(e.agentId) ? { deny: 'NEXUS could not pass this Test agent call on safely, so it is refused' } : next(e)))
 
 
 
@@ -1982,7 +2000,6 @@ export const register: Register = (on, options) => {
     }
     home = (await $.env.get('HOME')) ?? ''
     isMono = Boolean(await $.env.get('NO_COLOR')) || (await $.env.get('TERM')) === 'dumb'
-    isPaneOpen = true
     sessionId = await $.session.id()
     jevKey = await loadJevKey($)
     const [sessionAdvisor, sessionModel] = await Promise.all([setting($, 'advisorModel'), $.session.model()])
@@ -2000,6 +2017,8 @@ export const register: Register = (on, options) => {
       await update($, jev, x => ({ ...x, status: 'off' as const, reason: 'no key: TYPESAFE_API_KEY or Keychain nexus-typesafe' }))
     }
     await loadPrefs($)
+    // Open until the engine says otherwise (a minimal layout never opens it; an unplaced open is handled in the ui.open hook).
+    isPaneOpen = (await read($, prefs)).layout !== 'minimal'
     keptWidth = await keptDockColumns($)
     await syncMotion($)
     // The plan only where Claude Code itself answers it: never guessed from a model.
@@ -2414,9 +2433,16 @@ export const register: Register = (on, options) => {
   // ---- the pane's life: no frame timer runs while nothing is drawn ----------
   on('ui.open', async ($, e, next) => {
     const out = await next(e)
-    if (e.id === PANE && !('deny' in out && out.deny) && (out as { isPlaced?: boolean }).isPlaced !== false) {
-      isPaneOpen = true
-      animate($)
+    if (e.id === PANE) {
+      // Only a pane the engine actually seated is drawn: an unplaced or denied open leaves no timer running.
+      // (a result may come wrapped as `{ value }` or bare, depending on who answered below)
+      const placed = ((out as { value?: unknown }).value ?? out) as { isPlaced?: boolean; deny?: unknown }
+      isPaneOpen = !('deny' in out && out.deny) && !placed.deny && placed.isPlaced !== false
+      if (isPaneOpen) animate($)
+      else {
+        timer?.cancel()
+        timer = null
+      }
     }
     return out
   }).catch(($, e, next) => next(e))

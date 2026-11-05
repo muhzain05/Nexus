@@ -30,6 +30,9 @@ export const DEFAULT_TIMEOUT_MS = 120_000
 /** The only tools the Test agent may call, whatever its definition lists (an MCP tool, Skill or a future tool is refused). */
 export const ALLOWED_TOOLS = ['Read', 'Glob', 'Grep', 'Bash', 'SubagentHandback'] as const
 
+/** The only fields of a Bash call that reach the engine (its identity, the command and its description); NEXUS adds the capped timeout and the foreground flag itself. */
+export const BASH_FIELDS: ReadonlySet<string> = new Set(['tool', 'agentId', 'tool_use_id', 'command', 'description'])
+
 /** Bash input fields that would loosen a sandbox or a permission (or claim an approval): dropped from the call, so the agent cannot widen what it may do through the call's own fields. */
 export const LOOSENING = /sandbox|dangerous|disable|unsafe|bypass|permission|allow|approv|override|elevat|trust|skip|unrestrict/i
 

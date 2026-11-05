@@ -41,6 +41,8 @@ function engine(on: On, opts: { reduceMotion?: boolean; prefs?: Record<string, u
   })
   on('command.register', () => ({ value: { command: 'x' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.close', () => ({ value: undefined }) as any)
+  on('session.end', () => ({ sessionId: 's' }) as any)
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
@@ -177,4 +179,46 @@ test('Classic keeps its own ten frames a second', async ($, on) => {
   await clock.advance(1000)
   expect(reads - t0).toBeGreaterThanOrEqual(8)
   expect(reads - t0).toBeLessThanOrEqual(12)
+})
+
+test('teardown: closing the pane stops the frame timer even mid-turn, and reopening it starts one again', async ($, on) => {
+  const clock = engine(on)
+  await start($)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await clock.advance(2000)
+  const running = reads
+  expect(running).toBeGreaterThan(2)
+  await ($ as any).command.run({ command: 'nexus', args: 'close' })
+  await clock.advance(1000) // a frame already due may land
+  const closed = reads
+  await clock.advance(30_000)
+  // Nothing draws a closed pane: no timer, no ticks, however long the turn runs.
+  expect(reads).toBe(closed)
+  await ($ as any).command.run({ command: 'nexus', args: '' })
+  await clock.advance(4000)
+  expect(reads - closed).toBeGreaterThanOrEqual(8)
+})
+
+test('teardown: the session ending stops the frame timer', async ($, on) => {
+  const clock = engine(on)
+  await start($)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await clock.advance(2000)
+  expect(reads).toBeGreaterThan(2)
+  await $.session.end({ reason: 'exit' } as any)
+  await clock.advance(500)
+  const ended = reads
+  await clock.advance(60_000)
+  expect(reads).toBe(ended)
+})
+
+test('teardown: Cache Guard and the frame timer together leave nothing running after the session ends', async ($, on) => {
+  const clock = engine(on, { prefs: { cacheGuard: { enabled: true, idleMin: 5, maxHours: 8, maxBeats: 10, budgetUsd: 5, trustTtl: true } } })
+  await start($)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.session.end({ reason: 'exit' } as any)
+  await clock.advance(500)
+  const ended = reads
+  await clock.advance(2 * 60 * 60 * 1000)
+  expect(reads).toBe(ended)
 })

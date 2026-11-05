@@ -31,8 +31,14 @@ jobs:
         run: |
           claude plugin validate .
           claude plugin validate mod
+      # Each test file runs in its own process that compiles the plugin, with a 5 s limit per test; a loaded
+      # runner can time out the first test of a file. One retry, with the first failure printed; two failures fail.
       - name: Run every test
-        run: claude plugin test mod/nexus
+        run: |
+          if ! claude plugin test mod/nexus; then
+            echo "::warning::first attempt failed; retrying once (cold-start timing, see CONTRIBUTING.md)"
+            claude plugin test mod/nexus
+          fi
 
   config:
     name: Config and docs checks

@@ -39,7 +39,7 @@ Then `/nexus doctor` checks the install.
 - Pure functions in their own files; `register.tsx` only wires. A helper that takes `$` is a top-level `function`, not an arrow inside `register()`.
 - **Never invent a number.** A figure Claude Code did not report is `null` in state and `N/A` on screen, never `0`. Hiding a number is a display choice; it must not stop NEXUS collecting it.
 - Settings: a display setting never changes what an agent may do. Anything that does is under **Agents** and says so.
-- Only single-cell characters in the dashboard (box drawing, braille, geometric shapes). No emoji.
+- Only single-cell characters in the dashboard (box drawing, half blocks, geometric shapes). No emoji.
 - Keep Classic's look unless the change is about Classic.
 - Code comments say why, not what. Match the file's existing style; there is no formatter to run.
 
@@ -48,6 +48,10 @@ Then `/nexus doctor` checks the install.
 Every behaviour change needs a test, and a bug fix needs a test that fails without the fix. Tests import from `claude-code/testing`; copy a neighbour in `mod/nexus/tests/`. Tests that describe Classic start from `CLASSIC` in `tests/classic.ts`; a fresh store opens Orbit.
 
 Say in your pull request what you ran and what it printed. "Should pass" is not a result.
+
+**Golden screens.** `tests/golden.test.ts` pins the exact characters of the Orbit fixtures (dashboards at 60/80/100/120 columns, the telemetry presets, Council, four agents) and the black hole's three resting frames. If you change a screen on purpose, run `sh .github/scripts/update-goldens.sh` (needs Node and network for `npx esbuild`) and review the diff: a changed golden is a changed screen. A golden is a layout check, not proof the art looks right: look at it at real terminal size.
+
+**Timing.** Each test file runs in its own process that compiles the plugin first, with a 5 second limit per test. On a busy machine that first test can time out (it takes about 0.3 s alone; it has taken 5 s with 23 files starting at once under memory pressure). Rerun before suspecting your change; CI retries once and prints the first failure.
 
 ## Pull requests
 

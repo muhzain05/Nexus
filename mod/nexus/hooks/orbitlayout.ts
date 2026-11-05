@@ -4,7 +4,7 @@
 // matters (a failure, an alert, a key hint) is the part that gets cut: when a row is too
 // long, its one flexible field (a task, a message) shrinks and the rest stays.
 //
-// Only narrow glyphs are used (box drawing, braille, geometric shapes), so a cell is a column.
+// Only narrow glyphs are used (box drawing, half blocks, geometric shapes), so a cell is a column.
 import type { LogRow, NexusAgent } from '../types'
 import { DIMENSIONS, blackHole, sizeFor } from './blackhole'
 import type { BhSize } from './blackhole'

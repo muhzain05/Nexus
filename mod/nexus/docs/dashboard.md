@@ -24,21 +24,33 @@
 
 Orbit is the default for new installs. If you used NEXUS before 0.8 you stay on **Classic** until you choose otherwise (`/nexus settings theme orbit`); switching either way is live and changes nothing about what agents may do.
 
-![Orbit at 100 columns](screenshots/orbit-dashboard.png)
+![Orbit in a live 84-column pane](screenshots/live-pane-80.png)
 
-<sub>Rendered by NEXUS's layout code from sample data.</sub>
+<sub>A real Claude Code session, the pane about 84 columns wide.</sub>
 
 - **Header:** wordmark, mode, theme, the lead's state, context and Cache Guard when they are shown.
-- **Lead:** the Sonnet session with a slow black hole. It moves only while the session works (about four redraws a second, none when idle), takes 24 seconds (36 on *Very slow*) for one cycle, and is one still frame under reduced motion. *Animation* can also be the original orbit or off.
-- **Advisor, Council and Jev:** the advisor and Council reviewers (with timings and findings), and Jev's routing answers, labelled *observe only* or *active*.
-- **Subagents:** one row per instance, running first: task, a turns bar, turns, state and time. Any number of instances of a role; beyond six the rest are counted (`+3 more`).
+- **Lead:** the Sonnet session. At widths where it fits, the pixel-art black hole sits at the left and the model name, effort and state sit beside it; narrower, the words go under a smaller picture.
+- **Advisor, Council and Jev:** the advisor (calls, last consultation, what it read and how long it took), the Council reviewers with timings and findings, and Jev's routing answers, labelled *observe only* or *active*. In wide panes the advisor and Council sit beside the lead; otherwise side by side under it. No panel is stretched to fill space.
+- **Subagents:** one row per instance, running first: task, turns, state and time. Any number of instances of any role (`search`, `grep`, `audit`, `test`); beyond six the rest are counted (`+3 more`). A long task name shrinks first; the state and time never do.
 - **Activity:** a compact tape (agent started, finished or failed, advisor consulted, Council, Jev, test results). Repeats are dropped. Press `a` for the full tape.
 - **Usage:** plan windows, context and, depending on the preset, cost and tokens.
 - **Alerts:** a failed agent, a failed Council reviewer, context or a plan window at 90%, or Jev down appear under the header whatever you hide. Amber warnings at 70% can be turned off.
 
-**Width.** Claude Code caps a docked pane at 45% of the terminal, so a 100-column Orbit needs a terminal about 220 columns wide. Orbit has three layouts: at 96 columns and up the lead sits beside the advisor, Council and Jev; from 68 it stacks with room; narrower it trims. Below 40 columns, or inline, it falls back to a one-line-per-agent list. Nothing important is what gets cut: a long task name shrinks first, never a state, a time or an alert.
+### The black hole
 
-![Orbit at 60 columns](screenshots/orbit-narrow.png)
+It is drawn in square pixels (a half block is a square at a terminal's usual 1:2 cell shape) with a fixed eight-step dark-red-to-amber palette whose colours are exact xterm-256 entries, so a 256-colour terminal shows the same picture. Dark areas (the horizon, the sky) are cells with no colour at all, so a terminal without colour still shows the horizon as empty (set `NO_COLOR` and it draws in shades).
+
+Three compositions are tuned separately, not one picture scaled: **small** (30×7 cells: horizon, dome and a thin disk), **medium** (44×10: adds the inner arc, the lensed bowl and particles) and **large** (64×14: adds contour bands and disk streaks). The largest that fits is used; none is stretched.
+
+![v0.8.0 against v0.8.1 at real cell size](screenshots/blackhole-before-after.png)
+
+Motion is slow and only changes brightness, by at most one palette step: a warm wave along the disk, a slower ripple through the dome, a gentle twinkle of the particles. Which pixels are lit never changes, so the horizon and the silhouette are fixed. One cycle is 24 seconds (36 on *Very slow*) in 60 frames, drawn about 2.5 times a second while work runs, and not at all when the session is idle, the pane is closed or the session has ended. Reduced motion draws one still frame and runs no timer.
+
+### Width
+
+Claude Code caps a docked pane at 45% of the terminal, so a 100-column Orbit needs a terminal about 220 columns wide; the panes in the screenshots are 62, 84, 100 and 120 columns. Three layouts: from 112 columns the lead sits beside the advisor and Council; from 68 it stacks with the advisor and Council side by side; narrower it trims. Below 40 columns, or inline, it falls back to a one-line-per-agent list. If the dashboard would be taller than the pane, the blank rows between groups go first, so the bottom is never what is cut off.
+
+![Orbit in a live 62-column pane](screenshots/live-pane-60.png)
 
 ## Motion that means something
 

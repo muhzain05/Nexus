@@ -38,17 +38,17 @@ function Keys({ el, s, act, width }: { el: El; s: Snapshot; act: Actions; width:
   const list = s.agents.slice(-9)
   return (
     <Box flexWrap="wrap" columnGap={2} width={width}>
-      <Button key="orbit-settings" hotkey="s" label="[s] settings" plain onPress={() => act.settings()} />
-      <Button key="orbit-activity" hotkey="a" label="[a] activity" plain onPress={() => act.activity()} />
+      <Button key="orbit-settings" hotkey="s" label="settings" plain onPress={() => act.settings()} />
+      <Button key="orbit-activity" hotkey="a" label="activity" plain onPress={() => act.activity()} />
       {list.map((a, i) => (
-        <Button key={`inspect-${a.id}`} hotkey={String(i + 1)} label={`[${i + 1}] ${a.label}`} plain dimColor={a.status !== 'running'} onPress={() => act.inspect(a.id)} />
+        <Button key={`inspect-${a.id}`} hotkey={String(i + 1)} label={a.label} plain dimColor={a.status !== 'running'} onPress={() => act.inspect(a.id)} />
       ))}
       <Text color={O.dim}>ctrl+x tab to leave</Text>
     </Box>
   )
 }
 
-function Back({ el, act, label = '[b] back' }: { el: El; act: Actions; label?: string }) {
+function Back({ el, act, label = 'back' }: { el: El; act: Actions; label?: string }) {
   const { Button, Text } = el
   return Button && act.isFocused ? <Button key="orbit-back" hotkey="b" label={label} plain onPress={() => act.back()} /> : <Text color={O.dim}>b or /nexus back</Text>
 }
@@ -158,8 +158,8 @@ export function OrbitSettings({ el, s, act, width }: { el: El; s: Snapshot; act:
         <Text> </Text>
         {Button && act.isFocused ? (
           <Box columnGap={2}>
-            <Button key="reset-yes" hotkey="y" label="[y] yes, reset all" plain onPress={() => act.reset('all')} />
-            <Button key="reset-no" hotkey="n" label="[n] keep my settings" plain onPress={() => act.section(null)} />
+            <Button key="reset-yes" hotkey="y" label="yes, reset all" plain onPress={() => act.reset('all')} />
+            <Button key="reset-no" hotkey="n" label="keep my settings" plain onPress={() => act.section(null)} />
           </Box>
         ) : (
           <Text color={O.dim}>focus the pane (ctrl+x tab) to confirm, or /nexus settings reset all confirm</Text>
@@ -177,7 +177,7 @@ export function OrbitSettings({ el, s, act, width }: { el: El; s: Snapshot; act:
         {SECTIONS.map((sec, i) => (
           <Box key={`sec-${sec.id}`} flexDirection="column" marginTop={1}>
             {Button && act.isFocused ? (
-              <Button key={`open-${sec.id}`} hotkey={String(i + 1)} label={`[${i + 1}] ${sec.title}`} plain onPress={() => act.section(sec.id)} />
+              <Button key={`open-${sec.id}`} hotkey={String(i + 1)} label={sec.title} plain onPress={() => act.section(sec.id)} />
             ) : (
               <Text color={O.opus} bold>{i + 1}  {sec.title}</Text>
             )}
@@ -187,8 +187,8 @@ export function OrbitSettings({ el, s, act, width }: { el: El; s: Snapshot; act:
         ))}
         <Text> </Text>
         <Box columnGap={2}>
-          <Back el={el} act={act} label="[x] close settings" />
-          {Button && act.isFocused && <Button key="reset-all" hotkey="r" label="[r] reset everything…" plain dimColor onPress={() => act.section('reset-all')} />}
+          <Back el={el} act={act} label="close settings" />
+          {Button && act.isFocused && <Button key="reset-all" hotkey="r" label="reset everything…" plain dimColor onPress={() => act.section('reset-all')} />}
         </Box>
       </Box>
     )
@@ -218,9 +218,9 @@ export function OrbitSettings({ el, s, act, width }: { el: El; s: Snapshot; act:
       <Box columnGap={2}>
         {Button && act.isFocused ? (
           <>
-            <Button key="sec-back" hotkey="b" label="[b] back" plain onPress={() => act.section(null)} />
-            <Button key="sec-reset" hotkey="r" label={`[r] reset ${section.title}`} plain dimColor onPress={() => act.reset(section.id)} />
-            <Button key="sec-exit" hotkey="x" label="[x] exit" plain dimColor onPress={() => act.back()} />
+            <Button key="sec-back" hotkey="b" label="back" plain onPress={() => act.section(null)} />
+            <Button key="sec-reset" hotkey="r" label={`reset ${section.title}`} plain dimColor onPress={() => act.reset(section.id)} />
+            <Button key="sec-exit" hotkey="x" label="exit" plain dimColor onPress={() => act.back()} />
           </>
         ) : (
           <Text color={O.dim}>focus the pane (ctrl+x tab) to change these · /nexus settings {section.id}</Text>

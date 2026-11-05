@@ -36,4 +36,6 @@ He also shared the [pi-pocket](https://github.com/alchem0x2A/pi-pocket) harness 
 
 ## Orbit
 
-The Orbit theme's restrained, terminal-native look is inspired by [Omarchy](https://omarchy.org)'s aesthetic, and the Sonnet black hole by the way the black hole in the film *Interstellar* is usually drawn: a dark horizon, a bright accretion disk and light bent over and under it. NEXUS takes ideas only. **No code, image, font or other asset from either is used**; the black hole is computed from geometry in `mod/nexus/hooks/blackhole.ts`. This acknowledgment does not imply endorsement by Omarchy or anyone involved in the film.
+The Orbit theme's restrained, terminal-native look is inspired by [Omarchy](https://omarchy.org)'s aesthetic, and the Sonnet black hole follows the way the black hole in the film *Interstellar* is usually drawn: a dark horizon, a bright accretion disk and light bent over and under it. NEXUS takes ideas only. **No code, image, font or other asset from either is used.**
+
+The 0.8.1 black hole is **drawn by hand in code** (`mod/nexus/hooks/blackhole.ts`): its shapes were composed by eye against a pixel-art reference image supplied to the project, and no pixel, colour value or file from that image is copied or embedded. The reference image's own origin is not known to this project, so it is not redistributed anywhere in this repository. This acknowledgment does not imply endorsement by Omarchy or anyone involved in the film.

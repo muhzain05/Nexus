@@ -20,14 +20,14 @@ NEXUS checks every tool call the Test agent makes, **on top of** Claude Code's o
 | :--- | :--- |
 | Only four tools | Read, Glob, Grep and Bash. Anything else (Write, Edit, web tools, MCP tools, Skill…) is refused. |
 | Known test commands only | `npm`/`pnpm`/`yarn test` and `run test[:name]`, `bun test`, `deno test`, `pytest`, `python -m pytest`/`unittest`, `go test`, `cargo test`/`nextest`, `swift test`, `dotnet test`, `mvn test`/`verify`, `gradle test`, `rspec`, `rake test`, `phpunit`, `jest`, `vitest run`, `mocha`, `ava`, `tap`, `make test`/`check`, `ctest`, `claude plugin test`, and `npx --no-install <runner>`. |
-| One plain command | No `&&`, `;`, pipes, redirects, substitution, globs, brackets or variables, and no `NAME=value` words. |
+| One plain command | Plain ASCII only (a shell splits on a space or tab; anything else could be a different word to the shell than to NEXUS). No `&&`, `;`, pipes, redirects, substitution, globs, brackets or variables, and no `NAME=value` words. |
 | An allowlist of flags per runner | A flag the runner is not listed as accepting is refused, because runners have flags that run code (`go test -toolexec`), write files (`-coverprofile`), load plugins or set the environment (`npm --node-options`). Values are type-checked: a number, a name from a short list, a plain test filter, or a path inside the repository. |
 | Named targets only | `make`, `rake`, `gradle` and `mvn` accept only their test target; `make test install` is refused. |
 | No silent installs | No `install`, `add`, `ci`, `pip install`, or `npx` without `--no-install`. |
 | No rewriting | No snapshot-update, `--fix`, `--write` or output-file flags; no watch mode. |
-| Inside the repository | No absolute paths, `..`, URLs or package specifiers, and nothing that looks like a secret file. |
+| Inside the repository | No absolute paths, `..`, URLs or package specifiers, and nothing that looks like a secret file. Every path argument is also resolved through symlinks and must stay inside the repository; a file that does not exist yet is judged by its nearest existing parent folder, and if NEXUS cannot tell where a path leads the call is refused. |
 | Foreground, with a timeout | Always foreground; the timeout is the agent's own but never over 5 minutes (2 by default). |
-| Sandbox switches dropped | Any field of the call that loosens a sandbox or permission is removed before the call reaches the engine. |
+| Sandbox and permission fields dropped | Any field of the call that loosens a sandbox or permission, or claims an approval (`permissionMode`, `allowedTools`, `approved`, …), is removed before the call reaches the engine. What the task or the agent says is never read by the gate. |
 | Fails closed | If NEXUS cannot decide, the call is refused. |
 
 **Settings → Agents → Run tests** switches it off (`/nexus settings testRunner off`): every Bash call from the Test agent is then refused, while reads still work. The default is *known test commands*. Upgrading never loosens it.
@@ -47,4 +47,9 @@ The agent definition is [`skills/nexus/agents/nexus-test.md`](../../../skills/ne
 
 ## How it was checked
 
-The command gate was reviewed by the NEXUS Council (security, architecture and performance reviewers) at its first checkpoint. The first version blocked flags one by one and was bypassed (`go test -toolexec`, `npm --node-options`, `mvn exec:exec`, `make test install`, quoted shell syntax, URLs, and more). It was replaced with the per-runner allowlist above, and every reported bypass is now a refusal test (`mod/nexus/tests/testrunner.test.ts`). **The replacement was not re-reviewed by the Council.** If you find a command that passes and should not, please report it privately: see [SECURITY.md](../../../SECURITY.md).
+The command gate was reviewed by the NEXUS Council (security, architecture and performance reviewers) twice.
+
+- **0.8.0, first checkpoint.** The first version blocked flags one by one and was bypassed (`go test -toolexec`, `npm --node-options`, `mvn exec:exec`, `make test install`, quoted shell syntax, URLs, and more). It was replaced with the per-runner allowlist above, and every reported bypass became a refusal test (`mod/nexus/tests/testrunner.test.ts`). That replacement was not re-reviewed at the time.
+- **0.8.1.** A fresh adversarial pass added tests for alternate executables and wrappers, look-alike and invisible characters, quoting tricks, repeated and reordered flags, environment words in every position, and an agent told it may run anything. It found two real gaps, both fixed: a not-yet-existing file under a symlinked folder, and a tokenizer that split on more whitespace than a shell does. All three Council reviewers then reviewed the final code (see the pull request for their findings and what was done).
+
+A passing test is not a proof; an allowlist is not a sandbox. If you find a command that passes and should not, please report it privately: see [SECURITY.md](../../../SECURITY.md).

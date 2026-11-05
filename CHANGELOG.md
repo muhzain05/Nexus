@@ -1,7 +1,50 @@
 # Changelog (NEXUS)
 
 ## 0.8.1 (unreleased): Orbit, corrected
-A corrective release: the 0.8.0 black hole did not match its reference. (Filled in below as the work lands.)
+A corrective release, not new features. The 0.8.0 black hole did not look like the approved reference, the dashboard's balance was off, and several things had only been checked on sample data. Everything below was also run in a **live Claude Code 2.1.318 session** (screens and measurements in `mod/nexus/docs/screenshots/live-*`).
+
+### Fixed: the black hole
+- **Root cause.** 0.8.0 drew the picture from geometry: concentric dotted ellipses at even spacing, mirrored top and bottom, a filled disk band of near-constant thickness and a full bright ring round the horizon. That reads as a radar diagram. My own preview also hid how sparse braille looks in a real font (it drew each dot as a solid square). The picture occupied the whole panel width and the words sat under it.
+- **Now** a hand-shaped pixel-art picture in square half-block pixels: a dark horizon with a thin dim inner arc, a dome of layered light lifted over it, a thin tapering disk that crosses the horizon's lower edge, a faint detached bowl under it, and isolated particles. Lopsided on purpose (the left of the disk is hotter, the dome brighter than the bowl). Dark areas are empty cells, never a dark colour, so the horizon stays dark without colour; `NO_COLOR` draws in shades. The palette is eight steps that are exact xterm-256 colours.
+- **Three compositions**, tuned apart (30×7, 44×10, 64×14 cells), chosen by the room the panel has, never stretched.
+- **Animation** changes brightness only, by at most one palette step; which pixels are lit never changes, so the horizon and silhouette are fixed. 24 s cycle (36 s Very slow), 60 frames. The tick is now 400 ms (the frames change 2.5 times a second; a faster timer only repeated a frame).
+- Before and after at real cell size: `docs/screenshots/blackhole-before-after.png`. The static frame was reviewed against the reference and approved before the animation was built.
+
+### Fixed: the dashboard
+- The lead's words sit beside the picture where there is room (the picture is now about a third of the panel), and the lead is no longer the tallest thing on screen.
+- No panel is stretched to fill space: the 0.8.0 wide layout spread spare rows as blank gaps between the right-hand panels. The advisor and Council now sit side by side (or beside the lead from 112 columns), Jev is a full-width row, and any leftover is blank below, not between.
+- Subagent rows lost their turn meters: `28/30 turns`, state and time are in fixed columns.
+- The dashboard fits the pane's height: if it would be taller, the blank rows between groups go first (found live: at a 62-column pane Usage was cut off).
+- A cut-off message in the idle subagent panel was shortened (found live).
+
+### Fixed: settings
+- *Reduced motion* offered a value of `full`; it is now **Motion** with plain values (Follow Claude Code, Always animate, Reduced, Off).
+- Appearance had two layout settings; `layout` moved to Advanced (**Dashboard layout**). `agentDetail`, a display setting, moved out of Agents to Usage & Stats, so Agents holds only what changes what agents may do.
+- Every setting that changes what agents may do says so on its own line (`! changes what agents may do`).
+- Cache Guard's limits appear only once Cache Guard is on; Council *on* shows its token warning in Agents.
+- Buttons printed their hotkey twice (`b: [b] back`); found live, fixed.
+
+### Fixed: teardown
+- The frame timer kept running after the session ended and after the pane was closed mid-turn. It now stops on `session.end` and on the pane closing, and starts again when the pane reopens (tests verified by removing each fix).
+
+### Security: the Test agent
+- **Reviewed again from scratch** with an adversarial pass and all three Council reviewers (see the review notes in the pull request).
+- Path arguments are resolved through symlinks and must stay inside the repository; a file that does not exist yet is judged by its nearest existing parent (found by a test: it slipped through before).
+- Commands must be plain ASCII. A shell splits words on a space or a tab only, while the check split on any Unicode whitespace, so a command could mean different things to each.
+- More call fields that claim approval or loosen permissions are dropped before the call reaches the engine (`permissionMode`, `allowedTools`, `approved`, …).
+- New refusal tests: alternate executables and wrappers (`env`, `command`, `./node_modules/.bin/jest`), look-alike and invisible characters, quoting tricks, repeated and reordered flags, environment words in every position, and an agent told in its task that it may run anything.
+- The Test agent is still **not isolation**: the project's tests run with your permissions.
+
+### Tests and checks
+- 301 → **339** tests (plus the Council-reviewed changes). New: golden screens for 17 fixtures (dashboards at 60/80/100/120 columns, telemetry presets, Council, four agents, the black hole's three frames), teardown, symlinks, adversarial commands.
+- Measured in a live session: idle CPU about 3% with about 5 B/s of terminal output for both themes; while working, Orbit 5.4% and 203 B/s against Classic 6.9% and 373 B/s (figures include Claude Code itself). Frame generation: all 60 frames of the large picture in under 6 ms, under 1.7 MB cached; a full layout in about 0.2 ms.
+- **Timing flake explained.** Each test file runs in its own process that compiles the plugin, with a 5 s limit per test. The same two Council tests that take 0.25 s alone timed out at 5 s when 23 files started at once on a machine under memory pressure (load 15, about 1.9 GB free). CI now retries the test step once and prints the first failure. Timeouts were not raised.
+
+### Known limits
+- **Live validation covered** `/nexus` open and close, theme switching, settings with the keyboard, a resize, four pane widths (62, 84, 100 and 120 columns), a real Haiku subagent pair and Jev telemetry. **Not covered live:** Council reviewers (three Opus reviews cost too much for a smoke test; they are covered by tests) and a terminal other than the emulated one used to capture (Terminal.app, iTerm2 and Ghostty were not driven).
+- The README demo is a sequence of real screens about 1.6 s apart, not a smooth video.
+- Pixel art at 44 or 64 pixels wide is chunkier than the 125-pixel reference it follows.
+- The history finding (commit `2a847ee49c`) could not be classified from safe evidence: see SECURITY notes in the pull request.
 
 ## 0.8.0 (2026-11-04): Orbit
 - **Orbit theme.** A new look for the dashboard: near-black, thin panels with an angled corner, warm orange for Sonnet, blue for Haiku, lavender for Opus and mint for Jev. It lays out for a split terminal (three layouts: 96+, 68+ and narrower columns; a list below 40), with a long task name shrinking before any state, time or alert. Classic is unchanged.

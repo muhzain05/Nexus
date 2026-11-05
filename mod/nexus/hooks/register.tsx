@@ -193,7 +193,7 @@ const ORBIT_FRAME_MS = 400
 const FRAME_MS = 100
 const STILL_MS = 1000
 const KEYCHAIN_SERVICE = 'nexus-typesafe'
-const MS = { advisor: 4800, spawn: 1600, done: 1600, jev: 900, mode: 1600, route: 900, beat: 2000, 'council-out': 1600, 'council-back': 1600, 'council-fail': 1600 }
+const MS = { advisor: 4800, spawn: 1600, done: 1600, return: 1600, jev: 900, mode: 1600, route: 900, beat: 2000, 'council-out': 1600, 'council-back': 1600, 'council-fail': 1600 }
 
 // Module variables start over on a reload; everything drawn lives in $.state.
 let opts: PluginOptions = {}
@@ -285,7 +285,7 @@ async function snapshot($: EngineInterface): Promise<Snapshot> {
     read($, council),
     $.clock.now(),
   ])
-  return { lead: l, advisor: a, agents: list, jev: j, log: rows, mode: m, fx: f, reduceMotion: r, tick: t, view: v, prefs: pr, usage: us, models: md, guard: gd, council: cn, isMono, keptWidth, now }
+  return { lead: l, advisor: a, agents: list, jev: j, log: rows, mode: m, fx: f, reduceMotion: r, tick: t, view: v, prefs: pr, usage: us, models: md, guard: gd, council: cn, isMono, keptWidth, session: sessionId || null, now }
 }
 
 /** Re-reads Claude Code's own usage figures: free (no breakdown asked), no request is made. */
@@ -806,10 +806,15 @@ async function patchAgent($: EngineInterface, id: string, change: (a: NexusAgent
 async function finishAgent($: EngineInterface, id: string, status: NexusAgent['status'], reason: string | null) {
   const now = await $.clock.now()
   const agent = (await read($, agents)).find(a => a.id === id)
-  if (!agent || agent.status !== 'running') return
-  await patchAgent($, id, a => ({ ...a, status, reason, endedAt: now }))
+  if (!agent) return
+  // SubagentStop says an agent stopped, never how; the turn's own report may follow and is the truth. So a finished
+  // 'done' can still be corrected to failed or cancelled; nothing else ever leaves a finished state.
+  const isCorrection = agent.status === 'done' && status !== 'done'
+  if (agent.status !== 'running' && !isCorrection) return
+  await patchAgent($, id, a => ({ ...a, status, reason, endedAt: isCorrection ? (a.endedAt ?? now) : now }))
   await addFx($, 'done', id)
   await addLog($, {
+    ref: id,
     who: who(agent.type),
     kind: status === 'done' && !(agent.type === 'nexus-test' && parseReport(agent.summary).result === 'failed') ? 'done' : 'error',
     // The Test agent's tape line is its own report, never more: counts only when it printed them.
@@ -830,9 +835,11 @@ function toolTarget(e: Record<string, unknown>): { file: string | null; label: s
 }
 
 /** The Agent tool's own totals, matched to the instance by its tool_use_id. */
-async function recordAgentResult($: EngineInterface, toolUseId: string | undefined, result: unknown) {
+async function recordAgentResult($: EngineInterface, toolUseId: string | undefined, result: unknown, isError = false) {
   if (!toolUseId || !result || typeof result !== 'object') return
-  const r = result as { totalTokens?: unknown; resolvedModel?: unknown; usage?: unknown }
+  const r = result as { totalTokens?: unknown; resolvedModel?: unknown; usage?: unknown; status?: unknown }
+  // A foreground result is the answer handed back to the lead. A background launch has handed nothing back yet.
+  if (r.status !== 'async_launched') await markReturned($, (a: NexusAgent) => a.toolUseId === toolUseId, isError)
   const ttl = ttlEvidence(r.usage)
   // Subagent 1h writes show the account caches for an hour; 5m-only proves nothing about the main thread.
   if (ttl === '1h') await update($, guard, (g): Guard => (g.ttl === 'unverified' ? { ...g, ttl: '1h', ttlSource: 'subagent cache writes were 1-hour' } : g))
@@ -842,6 +849,19 @@ async function recordAgentResult($: EngineInterface, toolUseId: string | undefin
   await update($, agents, list =>
     list.map(a => (a.toolUseId === toolUseId ? { ...a, reportedTokens: total ?? a.reportedTokens, model: model ?? a.model } : a)),
   )
+}
+
+/**
+ * Records, once, that an agent's result reached the lead. This is "handed back", never "read": the model's own
+ * consumption of it is not something Claude Code reports.
+ */
+async function markReturned($: EngineInterface, isIt: (a: NexusAgent) => boolean, isError: boolean) {
+  const hit = (await read($, agents)).find(a => isIt(a) && (a.returnedAt ?? null) === null)
+  if (!hit) return
+  const at = await $.clock.now()
+  await patchAgent($, hit.id, a => ({ ...a, returnedAt: at, returnKind: isError ? 'error' : 'ok' }))
+  await addFx($, 'return', hit.id)
+  await addLog($, { who: who(hit.type), kind: isError ? 'error' : 'info', text: `${hit.label} ${isError ? 'result came back as an error' : 'result returned to the lead'}`, detail: '', ref: hit.id, flow: 'back' })
 }
 
 /** An instance by its number in /nexus agents (1-based) or its label. */
@@ -2117,6 +2137,12 @@ export const register: Register = (on, options) => {
       const result = wrapped ?? (origin.kind === 'peer' ? (/The report follows:\n([\s\S]*)$/.exec(e.text)?.[1] ?? '').replace(/^ {2}/gm, '') : '')
       if (role) pendingNotes.push(await settleBackground($, taskId, role, { reason: st === 'completed' ? 'answer' : st === 'failed' ? 'error' : 'aborted', answer: result }))
     }
+    // A background Haiku agent's completion notice (an engine-made prompt) is the one thing that shows its result
+    // reached the lead. A peer message is model-written text, so it never counts.
+    else if (taskId && origin.kind === 'task-notification') {
+      const st = /<status>(\w+)<\/status>/.exec(e.text)?.[1]
+      await markReturned($, a => a.id === taskId, st !== undefined && st !== 'completed')
+    }
     // Notes ride on a prompt the model reads: never on a slash command.
     const notes = pendingNotes.length && !e.command && !(e as { agentId?: string }).agentId ? pendingNotes.splice(0) : []
     const isTyped = !e.command && !e.isMeta && !e.turnId && e.origin.kind === 'composer'
@@ -2306,8 +2332,14 @@ export const register: Register = (on, options) => {
       if (testAgents.size > 200) testAgents.delete(testAgents.values().next().value!)
     }
 
+    // The same spawn arriving twice, or one with no tool_use_id for an agent already known, changes nothing: a
+    // finished agent is never reopened. (A new delegation to a known id has its own tool_use_id and replaces it.)
+    const known = (await read($, agents)).find(a => a.id === spawned.agentId)
+    if (known && (e.tool_use_id == null || known.toolUseId === e.tool_use_id)) return spawned
+
     const def = await definition($, e.subagentType)
-    const sameType = (await read($, agents)).filter(a => a.type === e.subagentType).length
+    // A new delegation to a known id replaces that record, so it is not counted among its own type.
+    const sameType = (await read($, agents)).filter(a => a.type === e.subagentType && a.id !== spawned.agentId).length
     const agent: NexusAgent = {
       id: spawned.agentId,
       type: e.subagentType ?? spawnType,
@@ -2331,10 +2363,13 @@ export const register: Register = (on, options) => {
       tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       reportedTokens: null,
       toolUseId: e.tool_use_id ?? null,
+      returnedAt: null,
+      returnKind: null,
+      session: sessionId || null,
     }
     await update($, agents, list => [...list.filter(a => a.id !== agent.id), agent].slice(-40))
     await addFx($, 'spawn', agent.id)
-    await addLog($, { who: who(agent.type), kind: 'start', text: `${agent.label} started`, detail: e.description })
+    await addLog($, { who: who(agent.type), kind: 'start', text: `${agent.label} started`, detail: e.description, ref: agent.id, ...(agent.toolUseId ? { flow: 'out' as const } : {}) })
     return spawned
   }).catch(($, e, next) =>
     // The council gate fails closed: a reviewer never starts ungated. Anything else is only observed.
@@ -2438,7 +2473,7 @@ export const register: Register = (on, options) => {
     // A permission dialog, when there is one, is shown inside this call.
     const ran = await next(e)
     await settleWait($)
-    if (tool === 'Agent' && 'result' in ran) await recordAgentResult($, e.tool_use_id, ran.result)
+    if (tool === 'Agent' && 'result' in ran) await recordAgentResult($, e.tool_use_id, ran.result, 'isError' in ran && ran.isError === true)
     const isError = 'isError' in ran && ran.isError === true
     await update($, mode, m => ({ ...m, recentErrors: isError ? m.recentErrors + 1 : 0 }))
     // Active routing: only a call the engine itself marked read-only, never a denied one.
@@ -2504,6 +2539,7 @@ export const register: Register = (on, options) => {
       section: id => void update($, view, () => ({ kind: 'settings' as const, ref: id })),
       reset: what => void settingsCommand($, `reset ${what} confirm`),
       activity: () => void update($, view, () => ({ kind: 'activity' as const, ref: null })),
+      filter: (name: string) => void update($, view, () => ({ kind: 'activity' as const, ref: name })),
     }
     const layout = e.surface === 'terminal' ? resolveLayout(s.prefs, width, e.props.placement) : 'list'
     if (layout === 'list') return <PaneList el={el} s={s} />

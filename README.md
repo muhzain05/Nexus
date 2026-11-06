@@ -63,7 +63,7 @@ No terminal wrapper and no patched binary: it is a native Claude Code plugin, an
 
 ## Orbit
 
-Orbit is the 0.8 look: near-black, thin panels with an angled corner, and a slow pixel-art black hole for the Sonnet lead that moves only while work is running. It is built to sit in a split terminal, so it is designed for 60 to 100 columns and adapts above and below that.
+Orbit is the 0.8 look: near-black, thin panels with an angled corner, and a slow black hole, drawn in fine Braille dots, for the Sonnet lead that moves only while work is running. It is built to sit in a split terminal, so it is designed for 60 to 100 columns and adapts above and below that.
 
 <table>
 <tr>
@@ -76,7 +76,7 @@ Orbit is the 0.8 look: near-black, thin panels with an angled corner, and a slow
 </tr>
 </table>
 
-- **Animation:** Black hole (default), Classic orbit, or Off; Slow or Very slow. The black hole is pixel art in three sizes that fit the pane; only its brightness moves, and only while work runs. Reduced motion draws one still frame, and nothing redraws while the session is idle or the pane is closed.
+- **Animation:** Black hole (default), Classic orbit, or Off; Slow or Very slow. The black hole is a thin amber picture in three sizes that fit the pane, drawn in Unicode Braille dots; only its brightness moves, and only while work runs. **Art detail** (Auto or Simple) switches to plain `. : '` characters if your font shows boxes instead of dots. Reduced motion draws one still frame, and nothing redraws while the session is idle or the pane is closed.
 - **Agent connections:** thin lines and marks show which agent was given which task and when its result came back, drawn only from events Claude Code reported (`/nexus settings agentLinks off` hides them; display only). [How to read them](mod/nexus/docs/dashboard.md#agent-connections)
 - **Classic** is still there and unchanged: `/nexus settings theme classic`.
 - More live stills: [62 columns](mod/nexus/docs/screenshots/live-pane-60.png) · [100](mod/nexus/docs/screenshots/live-pane-100.png) · [120](mod/nexus/docs/screenshots/live-pane-120.png) · [agents running](mod/nexus/docs/screenshots/live-agents-running.png) · [Agents settings](mod/nexus/docs/screenshots/live-settings-agents.png). Agent connections, live: [result returned](mod/nexus/docs/screenshots/live-flow-returned-84.png) · [delegating](mod/nexus/docs/screenshots/live-flow-delegating-84.png) · [Council running](mod/nexus/docs/screenshots/live-flow-council-running-84.png) · [62 columns](mod/nexus/docs/screenshots/live-flow-62.png) · [120](mod/nexus/docs/screenshots/live-flow-120.png). Rendered from sample data (not live): [a failure](mod/nexus/docs/screenshots/sample-alert.png), [the Full preset](mod/nexus/docs/screenshots/sample-full-preset.png).

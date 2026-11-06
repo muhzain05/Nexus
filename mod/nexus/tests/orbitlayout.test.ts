@@ -43,7 +43,7 @@ test('layout modes: wide beside, stacked, narrow; compact forces stacking', () =
 })
 
 test('the lead centrepiece: black hole by default, the classic orbit, or none', () => {
-  const braille = (p: ReturnType<typeof withPrefs>) => (all(orbitLines(snap({}, p), 100)).match(/[▀▄]/g) ?? []).length
+  const braille = (p: ReturnType<typeof withPrefs>) => (all(orbitLines(snap({}, p), 100)).match(/[⠁-⣿]/g) ?? []).length
   expect(braille(withPrefs())).toBeGreaterThan(60)
   expect(braille(withPrefs(['centerpiece', 'off']))).toBe(0)
   const classic = all(orbitLines(snap({}, withPrefs(['centerpiece', 'classic'])), 100))
@@ -58,7 +58,7 @@ test('density: compact is shorter than comfortable', () => {
 })
 
 /** The black hole's cells with their colours, as one string: what actually changes from frame to frame. */
-const holeLook = (lines: Line[]) => lines.flatMap(l => l.filter(g => /[▀▄]/.test(g.t)).map(g => `${g.t}|${g.c ?? ''}|${g.bg ?? ''}`)).join('\n')
+const holeLook = (lines: Line[]) => lines.flatMap(l => l.filter(g => /[⠁-⣿]/.test(g.t)).map(g => `${g.t}|${g.c ?? ''}|${g.bg ?? ''}`)).join('\n')
 
 test('the black hole moves with the clock and holds still under reduced motion', () => {
   const at = (now: number, reduce: boolean) => holeLook(orbitLines(snap({ now, reduceMotion: reduce }), 100))
@@ -66,16 +66,17 @@ test('the black hole moves with the clock and holds still under reduced motion',
   expect(at(NOW, true)).toBe(at(NOW + 12_000, true))
   const off = withPrefs(['animation', 'off'])
   expect(holeLook(orbitLines(snap({ now: NOW }, off), 100))).toBe(holeLook(orbitLines(snap({ now: NOW + 12_000 }, off), 100)))
-  // Only colours move: the shapes (which cells are half blocks) are the same at any time.
-  const shape = (now: number) => text(orbitLines(snap({ now }), 100)).join('\n').replace(/[^▀▄\n ]/g, ' ')
+  // Only colours move: the shapes (which cells hold dots) are the same at any time.
+  const shape = (now: number) => text(orbitLines(snap({ now }), 100)).join('\n').replace(/[^\u2801-\u28ff\n ]/g, ' ')
   expect(shape(NOW)).toBe(shape(NOW + 9_000))
 })
 
 test('animation speed: very slow changes less over the same time', () => {
+  // A short window (three slow frames): over a long one the glints wrap round and the comparison stops being monotonic.
   const changed = (speed: string) => {
     const p = withPrefs(['animationSpeed', speed])
     const a = holeLook(orbitLines(snap({ now: NOW }, p), 100)).split('\n')
-    const b = holeLook(orbitLines(snap({ now: NOW + 4_000 }, p), 100)).split('\n')
+    const b = holeLook(orbitLines(snap({ now: NOW + 1_200 }, p), 100)).split('\n')
     return a.filter((row, i) => row !== b[i]).length
   }
   expect(changed('veryslow')).toBeLessThan(changed('slow'))

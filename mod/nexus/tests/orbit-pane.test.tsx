@@ -31,7 +31,7 @@ async function texts($: any, width: number, isFocused = false, placement: 'dock'
   await ui.unmount()
   return out
 }
-const hole = (t: string) => (t.match(/[▀▄]/g) ?? []).length
+const hole = (t: string) => (t.match(/[⠁-⣿]/g) ?? []).length
 
 test('a first run opens Orbit with the black hole; a store from v0.7 stays on Classic', async ($, on) => {
   const e = engine(on)
@@ -252,15 +252,17 @@ test('minimal preset hides numbers but keeps agents and a failure in view', asyn
   expect(t).not.toMatch(/Activity|Usage|cost/)
 })
 
-test('NO_COLOR draws the black hole in shades, with no colour on any cell; TERM=dumb does too', async ($, on) => {
+test('NO_COLOR draws the black hole in the same Braille dots, with no colour on any cell; TERM=dumb does too', async ($, on) => {
   engine(on, undefined, false, { NO_COLOR: '1' })
   await start($)
   const ui = await $.ui.mount(pane(100))
-  const rows = (await ui.findAll({ type: 'Text' })).filter((n: any) => /[▀▄░▒▓█]/.test(n.text ?? '') && Array.isArray(n.children))
+  const rows = (await ui.findAll({ type: 'Text' })).filter((n: any) => /[⠁-⣿]/.test(n.text ?? '') && Array.isArray(n.children))
   const text = rows.map((n: any) => n.text).join('\n')
-  const cells = rows.flatMap((n: any) => n.children).filter((c: any) => c && typeof c === 'object' && /^[ ▀▄░▒▓█]+$/.test(String(c.children?.[0] ?? '')) && /[▀▄░▒▓█]/.test(String(c.children?.[0])))
+  const cells = rows.flatMap((n: any) => n.children).filter((c: any) => c && typeof c === 'object' && /^[ \u2801-\u28ff]+$/.test(String(c.children?.[0] ?? '')) && /[⠁-⣿]/.test(String(c.children?.[0])))
   await ui.unmount()
-  expect(text).toMatch(/[░▒▓█]/)
+  // Without colour the brightness steps are gone; the dots (the shape) are all that is left, and none of the old shade blocks.
+  expect(text).toMatch(/[⠁-⣿]/)
+  expect(text).not.toMatch(/[░▒▓█▀▄]/)
   expect(cells.length).toBeGreaterThan(5)
   for (const c of cells) expect([c.props?.color, c.props?.backgroundColor]).toEqual([undefined, undefined])
 })
@@ -269,7 +271,8 @@ test('without NO_COLOR the same pane draws colours', async ($, on) => {
   engine(on)
   await start($)
   const ui = await $.ui.mount(pane(100))
-  const coloured = (await ui.findAll({ type: 'Text' })).filter((n: any) => n.props?.backgroundColor && /▀/.test(String(n.children?.[0] ?? '')))
+  const rows = (await ui.findAll({ type: 'Text' })).filter((n: any) => /[⠁-⣿]/.test(n.text ?? '') && Array.isArray(n.children))
+  const coloured = rows.flatMap((n: any) => n.children).filter((c: any) => c && typeof c === 'object' && c.props?.color && /[⠁-⣿]/.test(String(c.children?.[0] ?? '')))
   await ui.unmount()
   expect(coloured.length).toBeGreaterThan(20)
 })

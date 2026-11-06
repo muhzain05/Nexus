@@ -391,7 +391,7 @@ export function leadPanel(s: Snapshot, w: number, isRoomy = s.prefs.density === 
   const ms = s.reduceMotion || s.prefs.animation === 'off' ? null : s.now
   const art: Line[] =
     plan.size !== null
-      ? holeLines(blackHole(ms, plan.size, s.prefs.animationSpeed, s.isMono === true))
+      ? holeLines(blackHole(ms, plan.size, s.prefs.animationSpeed, s.isMono === true, s.prefs.artDetail))
       : s.prefs.centerpiece === 'classic'
         ? spriteLines(coreOrbit(isWorking(s) && !s.reduceMotion ? s.now - (s.lead.turnStartedAt ?? s.now) : null), { core: O.sonnet, sat: O.sonnetHi, trail: O.sonnet, faint: O.faint })
         : []

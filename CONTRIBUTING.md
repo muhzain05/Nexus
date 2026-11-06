@@ -39,7 +39,7 @@ Then `/nexus doctor` checks the install.
 - Pure functions in their own files; `register.tsx` only wires. A helper that takes `$` is a top-level `function`, not an arrow inside `register()`.
 - **Never invent a number.** A figure Claude Code did not report is `null` in state and `N/A` on screen, never `0`. Hiding a number is a display choice; it must not stop NEXUS collecting it.
 - Settings: a display setting never changes what an agent may do. Anything that does is under **Agents** and says so.
-- Only single-cell characters in the dashboard (box drawing, half blocks, geometric shapes). No emoji.
+- Only single-cell characters in the dashboard (box drawing, half blocks, geometric shapes, Braille dots). No emoji.
 - Keep Classic's look unless the change is about Classic.
 - Code comments say why, not what. Match the file's existing style; there is no formatter to run.
 

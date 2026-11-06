@@ -1,6 +1,8 @@
 // The named screens the golden tests pin. Deterministic: a fixed clock and fixed figures (see snap.ts).
 import { agent, snap, withPrefs, NOW } from './snap'
 import type { Fx } from '../types'
+import { PALETTE } from '../hooks/blackhole'
+import type { BhSprite } from '../hooks/blackhole'
 import { NEW_COUNCIL } from '../hooks/council'
 import type { Snapshot } from '../hooks/views'
 
@@ -117,3 +119,8 @@ export const FIXTURES: Fixture[] = [...BASE_FIXTURES, ...FLOW_FIXTURES]
 
 /** The black hole's resting frame of each size, as glyph rows and as palette-step rows (0 = dark). */
 export const HOLE_SIZES = ['small', 'medium', 'large'] as const
+
+/** A black hole sprite's palette step (1 to 6) per cell, one string per cell row; '.' is a cell with no colour (dark). The golden pins it beside the glyphs. */
+export function holeSteps(sprite: BhSprite): string[] {
+  return sprite.map(runs => runs.map(r => [...r.text].map(() => (r.fg ? String(PALETTE.indexOf(r.fg as (typeof PALETTE)[number]) + 1) : '.')).join('')).join(''))
+}

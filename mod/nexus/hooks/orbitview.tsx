@@ -87,6 +87,7 @@ export function rangeChoices(spec: Setting, current: string, def: string): strin
 export function valueLabel(key: string, v: string): string {
   if (key === 'centerpiece') return { blackhole: 'Black hole', classic: 'Classic orbit', off: 'Off' }[v] ?? v
   if (key === 'animationSpeed') return { slow: 'Slow', veryslow: 'Very slow' }[v] ?? v
+  if (key === 'artDetail') return { auto: 'Auto (fine dots)', simple: 'Simple (plain characters)' }[v] ?? v
   if (key === 'animation') return { auto: 'Follow Claude Code', full: 'Always animate', reduced: 'Reduced', off: 'Off' }[v] ?? v
   if (key === 'testRunner') return { allowlist: 'Known test commands', off: 'Off' }[v] ?? v
   if (key === 'telemetry.preset') return v.charAt(0).toUpperCase() + v.slice(1)

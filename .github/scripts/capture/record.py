@@ -85,10 +85,18 @@ def main():
     ap.add_argument("--poll", type=float, default=0.2, help="seconds between screen checks")
     ap.add_argument("--claude", default="claude")
     ap.add_argument("--max-seconds", type=float, default=240, help="hard stop for the whole recording")
+    ap.add_argument("--allow-unmarked-cwd", action="store_true", help="skip the check that --cwd was made by demo-repo.sh (do not use on a real checkout)")
     ap.add_argument("claude_args", nargs=argparse.REMAINDER)
     a = ap.parse_args()
     cargs = a.claude_args[1:] if a.claude_args[:1] == ["--"] else a.claude_args
     steps = json.load(open(a.steps))
+
+    # The recording holds everything that was on screen: nobody else on the machine may read it.
+    os.umask(0o077)
+    # The steps accept Claude Code's "trust this folder" dialog and a model session then runs in --cwd, so --cwd must be
+    # the throwaway repository demo-repo.sh makes (it leaves a marker in .git), never a real checkout.
+    if not a.allow_unmarked_cwd and not os.path.isfile(os.path.join(a.cwd, ".git", "nexus-capture-demo")):
+        sys.exit("record.py: --cwd was not made by demo-repo.sh create (no capture marker), so no session was started. Make one with demo-repo.sh.")
 
     pid, fd = pty.fork()
     if pid == 0:
@@ -166,7 +174,7 @@ def main():
                 ok = wait_for(st["wait_until"], st.get("timeout", 60))
             if "hold" in st:
                 pump(st["hold"])
-            log.append({"step": name, "ok": ok, "at": round(time.time() - t0, 2)})
+            log.append({"step": name, "ok": ok, "required": st.get("required", True), "at": round(time.time() - t0, 2)})
             if not ok and st.get("required", True):
                 break
     finally:
@@ -182,12 +190,16 @@ def main():
         meta["steps_log"] = log
         meta["duration"] = round(time.time() - t0, 2)
         meta["frames"] = len(frames)
-        os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
-        with open(a.out, "w") as f:
+        os.makedirs(os.path.dirname(os.path.abspath(a.out)), mode=0o700, exist_ok=True)
+        fd_out = os.open(a.out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        os.chmod(a.out, 0o600)
+        with os.fdopen(fd_out, "w") as f:
             f.write(json.dumps({"meta": meta}) + "\n")
             for fr in frames:
                 f.write(json.dumps(fr) + "\n")
     print(json.dumps({"frames": len(frames), "duration": meta["duration"], "steps": log}))
+    # Exit non-zero when a required step failed, so a caller never treats a half-finished session as a finished one.
+    return 3 if any(not s["ok"] and s.get("required", True) and not s.get("skipped") for s in log) else 0
 
 
 if __name__ == "__main__":

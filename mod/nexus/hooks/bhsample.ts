@@ -14,7 +14,7 @@
 //
 // An optional halo (off in the shipped picture unless it earns its place) adds a strictly bounded number of dim
 // dots where glow is strong and nothing is lit.
-import { type DotKind, KINDS, type Scene, clamp } from './bhscene'
+import { type DotKind, KINDS, type Scene, clamp, inHorizonDot } from './bhscene'
 
 /** One composition's dots, row-major. `lv` 0 is dark, 1 to 6 a palette step; the rest say what a lit dot belongs to. */
 export type Dots = { W: number; H: number; lv: Uint8Array; kind: Uint8Array; along: Float32Array; ph: Float32Array }
@@ -72,7 +72,7 @@ export function blur(src: Float32Array, W: number, H: number, sx: number, sy: nu
 }
 
 export function sampleScene(sc: Scene, opt: SampleOptions): Dots {
-  const { W, H, K, ss, SW, cx, cy, R, ax, band } = sc
+  const { W, H, ss, SW } = sc
   const n = W * H
   const mean = new Float32Array(n) // coverage averaged over the dot's area
   const peak = new Float32Array(n) // the strongest coverage in it
@@ -107,7 +107,7 @@ export function sampleScene(sc: Scene, opt: SampleOptions): Dots {
   }
 
   /** Inside the event horizon, off the rows the disk crosses it on: dark, whatever the scene says. */
-  const isHorizon = (x: number, y: number) => Math.hypot((x + 0.5) * K - cx, y + 0.5 - cy) < R && Math.abs(y - ax) > band
+  const isHorizon = (x: number, y: number) => inHorizonDot(sc, x, y)
 
   // Occupancy: the ridge of the coverage. The direction across a line is where the coverage curves down the most (the
   // Hessian's most negative direction); a dot is kept when it is stronger than the neighbour on one side of that
@@ -165,7 +165,7 @@ export function sampleScene(sc: Scene, opt: SampleOptions): Dots {
   count = lit.reduce((q, v) => q + v, 0)
 
   // Glow: the brightness field, blurred, with the horizon cut out.
-  const glow = opt.glow > 0 || opt.halo > 0 ? blur(rad, W, H, GLOW_SIGMA / K, GLOW_SIGMA) : new Float32Array(n)
+  const glow = opt.glow > 0 || opt.halo > 0 ? blur(rad, W, H, GLOW_SIGMA / sc.K, GLOW_SIGMA) : new Float32Array(n)
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (isHorizon(x, y)) glow[y * W + x] = 0
 
   const out: Dots = { W, H, lv: new Uint8Array(n), kind: new Uint8Array(n), along: new Float32Array(n), ph: new Float32Array(n) }

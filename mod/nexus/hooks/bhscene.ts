@@ -55,6 +55,10 @@ export const TUNE: Record<SceneSize, {
 }
 
 /** The horizon's place, in the picture's physical units. */
+/** Whether the dot (x, y) lies inside the event horizon, off the rows the disk crosses it on: dark, whatever the scene says. */
+export const inHorizonDot = (f: { K: number; cx: number; cy: number; R: number; ax: number; band: number }, x: number, y: number) =>
+  Math.hypot((x + 0.5) * f.K - f.cx, y + 0.5 - f.cy) < f.R && Math.abs(y - f.ax) > f.band
+
 export function sceneFrame(size: SceneSize, cols: number, rows: number, aspect: number) {
   const W = cols * 2
   const H = rows * 4

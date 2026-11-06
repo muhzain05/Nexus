@@ -39,8 +39,8 @@ export function dotCount(mask: number): number {
 }
 
 /**
- * The mask of the cell whose top-left dot is (`x`, `y`) in a dot grid `w` wide, `lit` telling which dots
- * are on. Dots outside the grid are off.
+ * The mask of the cell whose top-left dot is (`x`, `y`), `lit` telling which dots are on. Dots outside the
+ * grid are `lit`'s to report as off: this function knows no bounds.
  */
 export function cellMask(lit: (x: number, y: number) => boolean, x: number, y: number): number {
   let mask = 0

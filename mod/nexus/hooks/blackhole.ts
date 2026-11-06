@@ -30,8 +30,8 @@
 // Three compositions (small, medium, large) are drawn separately, not one picture scaled: the small one has no
 // shoulder, one lower fragment and a nearly flat disk. Detail is removed at small sizes, never thickened.
 
-import { BRAILLE_BIT, CELL_DOTS, brailleChar } from './braille'
-import { type DotKind, KINDS, clamp, renderScene, sceneFrame } from './bhscene'
+import { BRAILLE_BIT, CELL_DOTS, brailleChar, dotCount } from './braille'
+import { type DotKind, KINDS, clamp, inHorizonDot, renderScene, sceneFrame } from './bhscene'
 import { type Dots, type SampleOptions, sampleScene } from './bhsample'
 
 export type BhSize = 'small' | 'medium' | 'large'
@@ -159,9 +159,7 @@ const hex = (step: number) => PALETTE[clamp(step, 1, 6) - 1]!
 function simpleChar(mask: number): string {
   const top = (BRAILLE_BIT[0]![0] | BRAILLE_BIT[0]![1] | BRAILLE_BIT[1]![0] | BRAILLE_BIT[1]![1]) & mask
   const bottom = mask & ~top
-  let n = 0
-  for (let m = mask; m; m &= m - 1) n++
-  if (n >= 5) return '*'
+  if (dotCount(mask) >= 5) return '*'
   return top && bottom ? ':' : top ? "'" : '.'
 }
 
@@ -242,9 +240,9 @@ export function dotSteps(size: BhSize, aspect: number = CELL_ASPECT): Record<str
 
 /** The dots that must stay dark in every frame: the event horizon, except the rows the (warped) disk crosses it on. */
 export function horizonPixels(size: BhSize, aspect: number = CELL_ASPECT): string[] {
-  const { W, H, K, cx, cy, R, ax, band } = sceneFrame(size, DIMENSIONS[size].cols, DIMENSIONS[size].rows, aspect)
+  const f = sceneFrame(size, DIMENSIONS[size].cols, DIMENSIONS[size].rows, aspect)
   const out: string[] = []
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (Math.hypot((x + 0.5) * K - cx, y + 0.5 - cy) < R && Math.abs(y - ax) > band) out.push(`${x},${y}`)
+  for (let y = 0; y < f.H; y++) for (let x = 0; x < f.W; x++) if (inHorizonDot(f, x, y)) out.push(`${x},${y}`)
   return out
 }
 

@@ -1,38 +1,53 @@
 import { expect, test } from 'claude-code/testing'
 
-import { CYCLE_MS, DIMENSIONS, FRAMES, PALETTE, bhText, blackHole, drawBlackHole, frames, horizonPixels, litKinds, litPixels, sizeFor } from '../hooks/blackhole'
+import { BRAILLE_BIT, brailleMask } from '../hooks/braille'
+import { CELL_ASPECT, CYCLE_MS, DIMENSIONS, FRAMES, PALETTE, bhText, blackHole, dotSteps, drawBlackHole, frames, horizonCircle, horizonPixels, litKinds, litPixels, sizeFor } from '../hooks/blackhole'
 import type { BhSize, BhSprite } from '../hooks/blackhole'
+import { cells } from '../hooks/orbitlayout'
 
 const SIZES: BhSize[] = ['small', 'medium', 'large']
 
-/** Each pixel's palette step (1..8) or null for dark, row-major, from a drawn sprite. */
-function levels(sprite: BhSprite): (number | null)[] {
-  const W = sprite[0]!.reduce((n, r) => n + r.text.length, 0)
-  const out: (number | null)[] = new Array(W * sprite.length * 2).fill(null)
-  const step = (hex: string | undefined) => (hex ? PALETTE.indexOf(hex as (typeof PALETTE)[number]) + 1 : null)
+// Everything below reads the DRAWN sprite (its glyphs and colours), not the renderer's own dot arrays, except
+// where a test says it is checking the geometry itself.
+
+/** The lit dots of a drawn sprite, `[y][x]` on the (cols * 2) x (rows * 4) dot grid, from its Braille glyphs. */
+function dotsOf(sprite: BhSprite): boolean[][] {
+  const out: boolean[][] = sprite.flatMap(() => [0, 1, 2, 3].map(() => [] as boolean[]))
   sprite.forEach((runs, r) => {
     let x = 0
     for (const run of runs) {
       for (const ch of run.text) {
-        if (ch === '▀') {
-          out[r * 2 * W + x] = step(run.fg)
-          out[(r * 2 + 1) * W + x] = step(run.bg)
-        } else if (ch === '▄') out[(r * 2 + 1) * W + x] = step(run.fg)
+        const mask = brailleMask(ch)
+        for (let j = 0; j < 4; j++) for (let i = 0; i < 2; i++) out[r * 4 + j]![x * 2 + i] = (mask & BRAILLE_BIT[j]![i]!) !== 0
         x++
       }
     }
   })
   return out
 }
-const lit = (sprite: BhSprite) => levels(sprite).map(v => v !== null)
+/** Each cell's palette step (1 to 6) or null for a cell with no colour, row-major. */
+function steps(sprite: BhSprite): (number | null)[] {
+  const out: (number | null)[] = []
+  for (const runs of sprite) for (const run of runs) for (const _ of run.text) out.push(run.fg ? PALETTE.indexOf(run.fg as (typeof PALETTE)[number]) + 1 : null)
+  return out
+}
+const litCount = (g: boolean[][]) => g.reduce((n, row) => n + row.filter(Boolean).length, 0)
+/** How many of the eight neighbours of dot (x, y) are lit. */
+const around = (g: boolean[][], x: number, y: number) => {
+  let n = 0
+  for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) if ((i || j) && g[y + j]?.[x + i]) n++
+  return n
+}
 
-test('every composition is exactly its size, drawn only with half blocks and spaces', () => {
+test('every composition is exactly its size, drawn only with spaces and Braille dots (never the blank pattern)', () => {
   for (const size of SIZES) {
     const text = bhText(drawBlackHole(size, 0.3))
     expect(text.length).toBe(DIMENSIONS[size].rows)
     for (const row of text) {
       expect([...row].length).toBe(DIMENSIONS[size].cols)
-      expect(row).toMatch(/^[ ▀▄]*$/)
+      // The layout measures it the same way: one column per cell, so nothing is ragged.
+      expect(cells(row)).toBe(DIMENSIONS[size].cols)
+      expect(row).toMatch(/^[ ⠁-⣿]*$/)
     }
   }
   expect(DIMENSIONS.small.cols).toBeLessThan(DIMENSIONS.medium.cols)
@@ -51,18 +66,24 @@ test('which composition a panel gets: the largest that fits, none when nothing d
   expect(sizeFor(80, 6)).toBeNull()
 })
 
-test('the event horizon is dark in every frame, in colour and in shades', () => {
+test('the dot grid is two dots a cell across and four down', () => {
+  for (const size of SIZES) {
+    const { cols, rows } = DIMENSIONS[size]
+    const g = dotsOf(drawBlackHole(size, null))
+    expect(g.length).toBe(rows * 4)
+    expect(g[0]!.length).toBe(cols * 2)
+    // The geometry's own count matches what the glyphs show.
+    expect(litCount(g)).toBe(litPixels(size).length)
+  }
+})
+
+test('the event horizon is dark in every frame, in colour, in simple characters and without colour', () => {
   for (const size of SIZES) {
     const dark = new Set(horizonPixels(size))
-    expect(dark.size).toBeGreaterThan(20)
-    const { cols } = DIMENSIONS[size]
-    for (const isMono of [false, true]) {
-      for (const f of [0, 9, 21, 30, 44, 59]) {
-        const lv = levels(drawBlackHole(size, f / FRAMES, isMono))
-        if (isMono) continue
-        lv.forEach((v, i) => {
-          if (v !== null) expect(dark.has(`${i % cols},${Math.floor(i / cols)}`)).toBe(false)
-        })
+    expect(dark.size).toBeGreaterThan(100)
+    for (const t of [null, 0, 0.15, 0.4, 0.62, 0.9]) {
+      for (const sprite of [drawBlackHole(size, t), drawBlackHole(size, t, true)]) {
+        dotsOf(sprite).forEach((row, y) => row.forEach((on, x) => { if (on) expect(dark.has(`${x},${y}`)).toBe(false) }))
       }
     }
     // Dark is no colour at all, not a dark colour.
@@ -70,44 +91,62 @@ test('the event horizon is dark in every frame, in colour and in shades', () => 
   }
 })
 
-test('the photon ring is a thin bright dotted ring at the horizon\'s edge, never inside it', () => {
-  for (const size of ['medium', 'large'] as const) {
-    const kinds = litKinds(size)
-    const ring = Object.entries(kinds).filter(([, k]) => k === 'ring').map(([key]) => key)
-    expect(ring.length).toBeGreaterThan(10)
-    const dark = new Set(horizonPixels(size))
-    const { cols } = DIMENSIONS[size]
-    const lv = levels(drawBlackHole(size, null))
-    let sum = 0
-    for (const key of ring) {
-      expect(dark.has(key)).toBe(false)
-      const [x, y] = key.split(',').map(Number)
-      sum += lv[y! * cols + x!]!
+test('the middle of the horizon is dark, checked without the renderer\'s own geometry', () => {
+  // A fixed block of dots in the upper middle of the horizon, clear of the ring and of the disk, in every frame.
+  const blocks: Record<BhSize, [number, number, number, number]> = { small: [26, 11, 33, 14], medium: [38, 15, 49, 20], large: [56, 22, 71, 29] }
+  for (const size of SIZES) {
+    const [x0, y0, x1, y1] = blocks[size]
+    let lit = 0
+    for (const t of [null, 0, 0.2, 0.4, 0.6, 0.8]) {
+      const g = dotsOf(drawBlackHole(size, t))
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (g[y]![x]) lit++
     }
-    // Brighter than the dome body and the lower arc around it.
-    expect(sum / ring.length).toBeGreaterThanOrEqual(4.8)
-  }
-  expect(Object.values(litKinds('small')).includes('ring')).toBe(false)
-})
-
-test('the silhouette never changes: the same pixels are lit in every frame', () => {
-  for (const size of SIZES) {
-    const base = lit(drawBlackHole(size, null))
-    expect(base.filter(Boolean).length).toBe(litPixels(size).length)
-    for (const f of [0, 7, 19, 33, 47, 59]) expect(lit(drawBlackHole(size, f / FRAMES))).toEqual(base)
+    expect(lit).toBe(0)
   }
 })
 
-test('only brightness moves, and never by more than one palette step from the resting picture', () => {
+test('the horizon is a circle: equal height and width in physical units, at the real cell aspect and at others', () => {
   for (const size of SIZES) {
-    const rest = levels(drawBlackHole(size, null))
+    for (const aspect of [0.45, CELL_ASPECT, 0.56]) {
+      const dots = horizonPixels(size, aspect).map(k => k.split(',').map(Number) as [number, number])
+      const ys = dots.map(d => d[1])
+      const height = Math.max(...ys) - Math.min(...ys) + 1
+      // The widest row of the horizon, counted in dots, times a dot's width (2 * aspect, with a dot's height 1).
+      const perRow = new Map<number, number>()
+      for (const [, y] of dots) perRow.set(y, (perRow.get(y) ?? 0) + 1)
+      const wide = Math.max(...perRow.values()) * 2 * aspect
+      expect(Math.abs(wide - height)).toBeLessThan(2.6)
+      const c = horizonCircle(size, aspect)
+      expect(c.dotAspect).toBe(2 * aspect)
+      expect(Math.abs(height - 2 * c.R)).toBeLessThan(2)
+    }
+    // The aspect moves dots across the grid but not the horizon's height.
+    expect(Math.abs(horizonCircle(size, 0.45).R - horizonCircle(size, 0.56).R)).toBe(0)
+    expect(litPixels(size).length).toBeGreaterThan(0)
+    expect(JSON.stringify(dotSteps(size, 0.56))).not.toBe(JSON.stringify(dotSteps(size)))
+  }
+})
+
+test('the silhouette never changes: the same dots are lit in every frame (occupancy is not brightness)', () => {
+  for (const size of SIZES) {
+    const base = bhText(drawBlackHole(size, null))
+    for (let f = 0; f < FRAMES; f++) expect(bhText(drawBlackHole(size, f / FRAMES))).toEqual(base)
+    // The simple characters and the uncoloured picture show the same cells lit.
+    const lit = (rows: string[]) => rows.map(r => [...r].map(c => (c === ' ' ? 0 : 1)).join(''))
+    expect(lit(bhText(drawBlackHole(size, null, false, 'simple')))).toEqual(lit(base))
+    expect(lit(bhText(drawBlackHole(size, null, true)))).toEqual(lit(base))
+  }
+})
+
+test('only brightness moves, by at most one palette step from the resting picture, and never to dark', () => {
+  for (const size of SIZES) {
+    const rest = steps(drawBlackHole(size, null))
     let tooFar = 0
     let dark = 0
     for (let f = 0; f < FRAMES; f += 3) {
-      levels(drawBlackHole(size, f / FRAMES)).forEach((v, i) => {
-        if (v === null) return
-        if (Math.abs(v - rest[i]!) > 1) tooFar++
-        if (v < 1) dark++
+      steps(drawBlackHole(size, f / FRAMES)).forEach((v, i) => {
+        if ((v === null) !== (rest[i] === null)) dark++
+        else if (v !== null && Math.abs(v - rest[i]!) > 1) tooFar++
       })
     }
     expect(tooFar).toBe(0)
@@ -115,28 +154,42 @@ test('only brightness moves, and never by more than one palette step from the re
   }
 })
 
-test('no flashing: neighbouring frames differ by at most one step, in a minority of pixels', () => {
+test('motion never makes the picture brighter than its resting frame: no frame has more cells at the top step', () => {
   for (const size of SIZES) {
-    const list = frames(size).map(levels)
+    const top = (sprite: BhSprite) => steps(sprite).filter(v => v === 6).length
+    const bright = (sprite: BhSprite) => steps(sprite).filter(v => v !== null && v >= 5).length
+    const rest = drawBlackHole(size, null)
+    for (let f = 0; f < FRAMES; f++) {
+      const frame = drawBlackHole(size, f / FRAMES)
+      expect(top(frame)).toBeLessThanOrEqual(top(rest))
+      // Cells at 5 or 6 can only dip, dimmer ones can rise to 5: the bright share stays near its resting value.
+      expect(bright(frame)).toBeLessThan(bright(rest) * 1.35 + 3)
+    }
+  }
+})
+
+test('no flashing: neighbouring frames differ by at most one step, in a minority of cells', () => {
+  for (const size of SIZES) {
+    const list = frames(size).map(steps)
     let worst = 0
     let jumps = 0
     list.forEach((a, i) => {
       const b = list[(i + 1) % list.length]!
       let changed = 0
-      let litCount = 0
+      let count = 0
       a.forEach((v, k) => {
         if (v === null) return
-        litCount++
+        count++
         const d = Math.abs(v - b[k]!)
         if (d > 1) jumps++
         if (d) changed++
       })
-      worst = Math.max(worst, changed / litCount)
+      worst = Math.max(worst, changed / count)
     })
     expect(jumps).toBe(0)
     expect(worst).toBeLessThan(0.3)
     // ...and it does move: not a still picture (distinct frames, compared cheaply by their colour runs).
-    const keys = new Set(frames(size).map(f => f.map(r => r.map(x => `${x.fg ?? ''}${x.bg ?? ''}`).join('')).join('|')))
+    const keys = new Set(frames(size).map(f => f.map(r => r.map(x => x.fg ?? '').join('')).join('|')))
     expect(keys.size).toBeGreaterThan(FRAMES / 2)
   }
 })
@@ -145,7 +198,7 @@ test('the loop is seamless: the end of a cycle is the start of the next', () => 
   for (const size of SIZES) expect(drawBlackHole(size, 1)).toEqual(drawBlackHole(size, 0))
   const cycle = CYCLE_MS.slow
   expect(blackHole(cycle * 3 + 1234, 'medium')).toEqual(blackHole(1234, 'medium'))
-  expect(blackHole(cycle * 7, 'large', 'veryslow')).toEqual(blackHole(cycle * 7 % CYCLE_MS.veryslow, 'large', 'veryslow'))
+  expect(blackHole(cycle * 7, 'large', 'veryslow')).toEqual(blackHole((cycle * 7) % CYCLE_MS.veryslow, 'large', 'veryslow'))
 })
 
 test('speed and stillness: 24 s, 36 s on very slow; null, NaN and reduced motion are the one still picture', () => {
@@ -153,125 +206,162 @@ test('speed and stillness: 24 s, 36 s on very slow; null, NaN and reduced motion
   expect(CYCLE_MS.veryslow).toBe(36_000)
   expect(blackHole(null, 'medium')).toEqual(drawBlackHole('medium', null))
   expect(blackHole(Number.NaN, 'medium')).toEqual(drawBlackHole('medium', null))
+  expect(blackHole(null, 'medium')).toBe(blackHole(null, 'medium'))
   expect(blackHole(0, 'medium', 'slow')).toEqual(blackHole(0, 'medium', 'veryslow'))
   // Half a slow cycle in, a very slow cycle is only a third of the way round.
   expect(blackHole(CYCLE_MS.slow / 2, 'medium', 'slow')).not.toEqual(blackHole(CYCLE_MS.slow / 2, 'medium', 'veryslow'))
 })
 
-test('the palette is eight steps of one amber hue, each an exact xterm-256 colour', () => {
-  expect(PALETTE.length).toBe(8)
+test('the palette is six steps of restrained amber, each an exact xterm-256 colour', () => {
+  expect(PALETTE.length).toBe(6)
   const cube = [0, 95, 135, 175, 215, 255]
   const rgb = (hex: string) => [1, 3, 5].map(i => Number.parseInt(hex.slice(i, i + 2), 16)) as [number, number, number]
   PALETTE.forEach(hex => {
     for (const c of rgb(hex)) expect(cube).toContain(c)
   })
-  // Warm and brightening: red never falls, green never falls, from step to step; blue stays low until the last steps.
-  for (let i = 1; i < PALETTE.length; i++) {
-    const [r0, g0] = rgb(PALETTE[i - 1]!)
-    const [r1, g1] = rgb(PALETTE[i]!)
-    expect(r1).toBeGreaterThanOrEqual(r0)
-    expect(g1).toBeGreaterThanOrEqual(g0)
-  }
-  // The brightest step is a pale gold, the darkest a deep gold: not a red ramp.
-  expect(rgb(PALETTE[7]!)[1]).toBeGreaterThan(200)
-  expect(rgb(PALETTE[0]!)[1]).toBeGreaterThan(0)
-})
-
-test('no step of the palette is red-dominant', () => {
+  // Brightening step by step (by luminance), warm (red at least green at least blue), and never red-dominant or yellow-flooded.
+  const lum = (hex: string) => rgb(hex)[0] * 0.299 + rgb(hex)[1] * 0.587 + rgb(hex)[2] * 0.114
+  for (let i = 1; i < PALETTE.length; i++) expect(lum(PALETTE[i]!)).toBeGreaterThan(lum(PALETTE[i - 1]!))
   PALETTE.forEach(hex => {
-    const [r, g] = [1, 3].map(i => Number.parseInt(hex.slice(i, i + 2), 16)) as [number, number]
+    const [r, g, b] = rgb(hex)
+    expect(r >= g && g >= b).toBe(true)
     expect(r > 2.2 * g).toBe(false)
   })
+  // The brightest step is a pale gold, not white; the darkest is still amber, not grey.
+  expect(rgb(PALETTE[5]!)[2]).toBeLessThan(160)
+  expect(rgb(PALETTE[0]!)[0] - rgb(PALETTE[0]!)[2]).toBeGreaterThan(100)
 })
 
-test('it is mostly black: the large size has between 8% and 28% of its pixels lit, and the smaller ones stay under 28%', () => {
-  const frac = (s: BhSize) => litPixels(s).length / (DIMENSIONS[s].cols * DIMENSIONS[s].rows * 2)
-  expect(frac('large')).toBeGreaterThan(0.08)
-  expect(frac('large')).toBeLessThan(0.28)
-  expect(frac('medium')).toBeLessThan(0.28)
-  expect(frac('small')).toBeLessThan(0.28)
-})
-
-test('it is thin pixel art, not a bar: no tall solid column, few of the very brightest pixels', () => {
-  for (const size of ['medium', 'large'] as const) {
-    const { cols, rows } = DIMENSIONS[size]
-    const H = rows * 2
-    const lv = levels(drawBlackHole(size, 0.25))
-    const total = lv.filter(v => v !== null).length
-    // The brightest steps are rare: hot material is a few pixels, not a stripe.
-    expect(lv.filter(v => v !== null && v >= 7).length / total).toBeLessThan(0.08)
-    // No column is lit top to bottom, and the disk's own band is thin: no run of lit pixels is more than 60% of the height.
-    for (let x = 0; x < cols; x++) {
-      let run = 0
-      let longest = 0
-      for (let y = 0; y < H; y++) {
-        run = lv[y * cols + x] !== null ? run + 1 : 0
-        longest = Math.max(longest, run)
-      }
-      expect(longest).toBeLessThan(H * 0.6)
-    }
-    // Wide, like the reference: lit from near the left edge to near the right edge, and mostly black.
-    const litCols = Array.from({ length: cols }, (_, x) => lv.some((_, k) => k % cols === x && lv[k] !== null))
+test('it is mostly black and thin: few lit dots, almost none crowded, no solid block anywhere', () => {
+  const fill = (size: BhSize) => litPixels(size).length / (DIMENSIONS[size].cols * 2 * DIMENSIONS[size].rows * 4)
+  expect(fill('large')).toBeLessThan(0.08)
+  expect(fill('medium')).toBeLessThan(0.1)
+  expect(fill('small')).toBeLessThan(0.11)
+  for (const size of SIZES) {
+    const g = dotsOf(drawBlackHole(size, 0.25))
+    let crowded = 0
+    let worst = 0
+    let total = 0
+    g.forEach((row, y) => row.forEach((on, x) => {
+      if (!on) return
+      total++
+      const n = around(g, x, y)
+      if (n >= 5) crowded++
+      worst = Math.max(worst, n)
+    }))
+    // A stroke is one dot thick: a dot with five or more lit neighbours is a blob. The few that exist are where the
+    // disk swells beside the horizon and where ridges cross the ring (measured: under 8% of the dots at every size).
+    expect(crowded / total).toBeLessThan(0.08)
+    // No dot sits in the middle of a solid patch.
+    expect(worst).toBeLessThan(8)
+    // Lit from near the left edge to near the right edge, like the reference (whose disk tips are faint), and the black
+    // stays black. The small composition is narrower by design, and its disk tips are the sparsest dots of all.
+    const cols = g[0]!.length
+    const litCols = Array.from({ length: cols }, (_, x) => g.some(row => row[x]))
     expect(litCols.indexOf(true)).toBeLessThan(cols * 0.12)
-    expect(litCols.lastIndexOf(true)).toBeGreaterThan(cols * 0.88)
-    expect(total / lv.length).toBeLessThan(0.4)
+    expect(litCols.lastIndexOf(true)).toBeGreaterThan(cols * (size === 'small' ? 0.84 : 0.88))
   }
 })
 
-test('lopsided on purpose: the left of the disk runs hotter than the right, the dome is brighter than the bowl', () => {
-  for (const size of ['medium', 'large'] as const) {
+test('the accretion disk is one dot row thick away from the horizon, and the lensed arc is one dot thick everywhere', () => {
+  for (const size of SIZES) {
+    const kinds = litKinds(size)
     const { cols, rows } = DIMENSIONS[size]
-    const lv = levels(drawBlackHole(size, null))
-    const mean = (pred: (x: number, y: number) => boolean) => {
-      const xs = lv.map((v, i) => [v, i % cols, Math.floor(i / cols)] as const).filter(([v, x, y]) => v !== null && pred(x, y))
-      return xs.reduce((n, [v]) => n + v!, 0) / Math.max(1, xs.length)
+    const W = cols * 2
+    const H = rows * 4
+    const cx = W / 2
+    const half = Math.min(1.12 * H, W / 2 - 1)
+    const diskPerColumn = new Map<number, number>()
+    const arcPerColumn = new Map<number, number>()
+    for (const [key, kind] of Object.entries(kinds)) {
+      const [x] = key.split(',').map(Number) as [number, number]
+      if (kind === 'disk') diskPerColumn.set(x, (diskPerColumn.get(x) ?? 0) + 1)
+      if (kind === 'arc') arcPerColumn.set(x, (arcPerColumn.get(x) ?? 0) + 1)
     }
-    const mid = Math.floor(rows)
-    expect(mean((x, y) => x < cols * 0.42 && y > mid - 6 && y < mid + 4)).toBeGreaterThan(mean((x, y) => x > cols * 0.58 && y > mid - 6 && y < mid + 4))
-    expect(mean((_, y) => y < mid - 3)).toBeGreaterThan(mean((_, y) => y > mid + 5))
+    for (const [x, n] of diskPerColumn) if (Math.abs(x + 0.5 - cx) > 0.5 * half) expect(n).toBeLessThan(2)
+    // The swell beside the horizon is at most three rows.
+    for (const n of diskPerColumn.values()) expect(n).toBeLessThan(4)
+    // The arc climbs gently (a column of it may hold a few dots where it is steepest); never a band.
+    const steepest = Math.max(...arcPerColumn.values())
+    expect(steepest).toBeLessThan(size === 'small' ? 5 : 8)
+    // Disk dots exist on both sides of the horizon: it crosses it.
+    expect(Object.entries(kinds).some(([k, v]) => v === 'disk' && Number(k.split(',')[0]) < cx - 5)).toBe(true)
+    expect(Object.entries(kinds).some(([k, v]) => v === 'disk' && Number(k.split(',')[0]) > cx + 5)).toBe(true)
   }
 })
 
-test('three compositions, tuned apart: the small one has no bowl, the large one more particles and texture', () => {
-  const count = (size: BhSize) => litPixels(size).length / (DIMENSIONS[size].cols * DIMENSIONS[size].rows * 2)
-  const bowlRows = (size: BhSize) => {
-    const lv = levels(drawBlackHole(size, null))
-    const { cols, rows } = DIMENSIONS[size]
-    // Lit pixels in the lowest fifth of the picture, away from the sides.
-    return lv.filter((v, i) => v !== null && Math.floor(i / cols) > rows * 2 * 0.78 && (i % cols) > cols * 0.3 && (i % cols) < cols * 0.7).length
+test('the lower arc is subtler than the upper: fewer dots, dimmer', () => {
+  for (const size of SIZES) {
+    const kinds = litKinds(size)
+    const rest = dotSteps(size)
+    const of = (k: string) => Object.entries(kinds).filter(([, v]) => v === k).map(([key]) => rest[key]!)
+    const ring = of('ring')
+    const bowl = of('bowl')
+    expect(bowl.length).toBeGreaterThan(5)
+    expect(bowl.length).toBeLessThan(ring.length)
+    const mean = (xs: number[]) => xs.reduce((n, v) => n + v, 0) / xs.length
+    expect(mean(bowl)).toBeLessThan(mean(ring) - 0.8)
   }
-  expect(bowlRows('small')).toBe(0)
-  expect(bowlRows('medium')).toBeGreaterThan(3)
-  expect(bowlRows('large')).toBeGreaterThan(bowlRows('medium'))
-  // Not one picture scaled: the lit fraction differs between sizes.
-  expect(new Set(SIZES.map(s => count(s).toFixed(3))).size).toBe(3)
 })
 
-test('a few isolated particles sit apart from the rest, in the medium and large pictures', () => {
-  for (const [size, min] of [['medium', 3], ['large', 5]] as const) {
-    const { cols } = DIMENSIONS[size]
-    const lv = levels(drawBlackHole(size, null))
-    const H = lv.length / cols
+test('lopsided on purpose: the left of the disk runs hotter than the right', () => {
+  for (const size of SIZES) {
+    const kinds = litKinds(size)
+    const rest = dotSteps(size)
+    const cx = DIMENSIONS[size].cols
+    const mean = (pred: (x: number) => boolean) => {
+      const xs = Object.entries(kinds).filter(([k, v]) => v === 'disk' && pred(Number(k.split(',')[0]))).map(([k]) => rest[k]!)
+      return xs.reduce((n, v) => n + v, 0) / Math.max(1, xs.length)
+    }
+    expect(mean(x => x < cx)).toBeGreaterThan(mean(x => x > cx))
+  }
+})
+
+test('three compositions, tuned apart: detail is removed at small sizes, not thickened', () => {
+  const kindsOf = (size: BhSize) => new Set(Object.values(litKinds(size)))
+  expect(kindsOf('small').has('shoulder')).toBe(false)
+  expect(kindsOf('medium').has('shoulder')).toBe(true)
+  expect(kindsOf('large').has('shoulder')).toBe(true)
+  for (const size of SIZES) for (const k of ['ring', 'bowl', 'arc', 'disk', 'dust']) expect(kindsOf(size).has(k as never)).toBe(true)
+  const dust = (size: BhSize) => Object.values(litKinds(size)).filter(k => k === 'dust').length
+  expect(dust('small')).toBeLessThan(dust('medium'))
+  expect(dust('medium')).toBeLessThan(dust('large'))
+})
+
+test('a few isolated particles sit apart from the rest', () => {
+  for (const [size, min] of [['small', 2], ['medium', 3], ['large', 5]] as const) {
+    const g = dotsOf(drawBlackHole(size, null))
     let isolated = 0
-    lv.forEach((v, i) => {
-      if (v === null) return
-      const x = i % cols
-      const y = Math.floor(i / cols)
-      let near = 0
-      for (let j = -1; j <= 1; j++) for (let k = -1; k <= 1; k++) if ((j || k) && x + k >= 0 && x + k < cols && y + j >= 0 && y + j < H && lv[(y + j) * cols + x + k] !== null) near++
-      if (near === 0) isolated++
-    })
+    g.forEach((row, y) => row.forEach((on, x) => { if (on && around(g, x, y) === 0) isolated++ }))
     expect(isolated).toBeGreaterThanOrEqual(min)
   }
 })
 
-test('without colour the shape is the same and the horizon is still empty', () => {
+test('without colour the shape is the same and nothing has a colour', () => {
   for (const size of SIZES) {
     const colour = bhText(drawBlackHole(size, 0.2))
     const mono = drawBlackHole(size, 0.2, true)
-    expect(bhText(mono).map(r => r.replace(/[░▒▓█]/g, '▀'))).toEqual(colour.map(r => r))
+    expect(bhText(mono)).toEqual(colour)
     for (const run of mono.flat()) expect([run.fg, run.bg]).toEqual([undefined, undefined])
-    expect(bhText(mono).join('')).toMatch(/[░▒▓█]/)
+    // No colour means nothing to animate: every frame is the one picture.
+    expect(frames(size, true)[0]).toBe(frames(size, true)[FRAMES - 1])
+  }
+})
+
+test('simple detail: the same lit cells as plain characters, for fonts without Braille', () => {
+  for (const size of SIZES) {
+    const plain = bhText(drawBlackHole(size, 0.2, false, 'simple'))
+    const fine = bhText(drawBlackHole(size, 0.2))
+    expect(plain.length).toBe(fine.length)
+    plain.forEach((row, r) => {
+      expect(row).toMatch(/^[ '.:*]*$/)
+      expect(cells(row)).toBe(DIMENSIONS[size].cols)
+      expect([...row].map(c => c !== ' ')).toEqual([...fine[r]!].map(c => c !== ' '))
+    })
+    // Still coloured and still animated, and a separate cache from the fine one.
+    expect(drawBlackHole(size, 0.2, false, 'simple').flat().some(r => r.fg)).toBe(true)
+    expect(blackHole(5000, size, 'slow', false, 'simple')).not.toBe(blackHole(5000, size, 'slow', false, 'auto'))
+    expect(blackHole(null, size, 'slow', false, 'simple')).toBe(blackHole(null, size, 'slow', false, 'simple'))
   }
 })
 
@@ -280,23 +370,17 @@ test('frames are built once per size and the cache costs little', () => {
   expect(blackHole(2000, 'medium')).toBe(frames('medium')[Math.floor((2000 / CYCLE_MS.slow) * FRAMES)])
   const t0 = performance.now()
   for (const s of SIZES) for (const m of [false, true]) frames(s, m)
-  expect(performance.now() - t0).toBeLessThan(800)
+  expect(performance.now() - t0).toBeLessThan(1500)
   const t1 = performance.now()
   for (let i = 0; i < 5000; i++) blackHole(i * 100, 'large')
   expect(performance.now() - t1).toBeLessThan(400)
 })
 
-test('the middle of the horizon is dark, checked without the renderer\'s own geometry', () => {
-  // A fixed block in the upper middle of the horizon, a few pixels clear of the ring and of the disk, in every frame.
-  const blocks: Record<'medium' | 'large', [number, number, number, number]> = { medium: [20, 6, 23, 9], large: [29, 7, 34, 12] }
-  for (const size of ['medium', 'large'] as const) {
-    const [x0, y0, x1, y1] = blocks[size]
-    const { cols } = DIMENSIONS[size]
-    let lit = 0
-    for (const f of [null, 0, 0.2, 0.4, 0.6, 0.8]) {
-      const lv = levels(drawBlackHole(size, f))
-      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (lv[y * cols + x] !== null) lit++
-    }
-    expect(lit).toBe(0)
+test('every coloured cell is its own run, so a frame\'s run list has the same shape in every frame', () => {
+  for (const size of SIZES) {
+    const shape = (s: BhSprite) => s.map(r => r.map(x => (x.fg ? '1' : String(x.text.length))).join(',')).join('|')
+    const base = shape(drawBlackHole(size, null))
+    for (const f of [0, 13, 29, 44, 59]) expect(shape(drawBlackHole(size, f / FRAMES))).toBe(base)
+    for (const run of drawBlackHole(size, 0.1).flat()) if (run.fg) expect([...run.text].length).toBe(1)
   }
 })

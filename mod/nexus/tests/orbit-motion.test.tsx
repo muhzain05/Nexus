@@ -81,12 +81,12 @@ async function text($: any, width = 100): Promise<string> {
 /** The black hole as drawn, with colours: the cell text and each cell's colours. Colour is all that moves. */
 async function holeLook($: any, width = 100): Promise<string> {
   const ui = await $.ui.mount(pane(width))
-  const rows = (await ui.findAll({ type: 'Text' })).filter((n: any) => /[▀▄]/.test(n.text ?? '') && Array.isArray(n.children) && n.children.some((c: any) => c && typeof c === 'object'))
+  const rows = (await ui.findAll({ type: 'Text' })).filter((n: any) => /[⠁-⣿]/.test(n.text ?? '') && Array.isArray(n.children) && n.children.some((c: any) => c && typeof c === 'object'))
   await ui.unmount()
   return rows
     .map((n: any) =>
       (n.children as any[])
-        .filter(c => c && typeof c === 'object' && /[▀▄]/.test(String(c.children?.[0] ?? '')))
+        .filter(c => c && typeof c === 'object' && /[⠁-⣿]/.test(String(c.children?.[0] ?? '')))
         .map(c => `${c.props?.color ?? ''}/${c.props?.backgroundColor ?? ''}/${c.children?.[0] ?? ''}`)
         .join(','),
     )

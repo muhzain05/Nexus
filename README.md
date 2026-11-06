@@ -4,7 +4,7 @@
 
 ### A terminal-native multi-agent command center for Claude Code
 
-**NEXUS shows what your lead model, Haiku subagents, Opus advisor and reviewers are doing as they do it, in a dashboard docked beside your session.**
+**NEXUS shows what your lead model, Haiku subagents, Opus advisor and reviewers are doing as they do it, from the events Claude Code reports, in a dashboard docked beside your session.**
 
 [Install](#install) · [Quick start](#quick-start) · [Orbit](#orbit) · [Agents](#agents) · [Settings](#settings-and-telemetry) · [Commands](#commands) · [Docs](#documentation)
 
@@ -20,7 +20,7 @@
 claude plugin marketplace add muhzain05/Nexus && claude plugin install nexus@muhzain05 --scope user
 ```
 
-That is two Claude Code commands in one line; nothing is downloaded or run beyond the plugin itself. Start a **new** Claude Code session in the fullscreen TUI (`"tui": "fullscreen"` in Claude Code's settings), then run **`/nexus`**.
+That is two Claude Code commands in one line; nothing is downloaded or run beyond the plugin itself. If `git` over SSH is not set up on your machine, add the marketplace by URL instead: `claude plugin marketplace add https://github.com/muhzain05/Nexus.git`. Start a **new** Claude Code session in the fullscreen TUI (`"tui": "fullscreen"` in Claude Code's settings), then run **`/nexus`**.
 
 <details>
 <summary>From a local clone · the companion skill · upgrading from 0.7</summary>
@@ -59,7 +59,7 @@ The dashboard needs the plugin above; the skill alone does not draw anything. Th
 
 No terminal wrapper and no patched binary: it is a native Claude Code plugin, and your prompt, permissions and sessions work as before.
 
-> **Honest by design.** Every number comes from Claude Code. What it does not report reads `N/A`, never `0`. Costs are **API-priced estimates**, not necessarily what a subscription is charged, and NEXUS does not guess per-agent cost.
+> **Honest by design.** Every number comes from Claude Code, except the few NEXUS tallies that say so (for example Jev's spend against its $0.50 cap). What it does not report reads `N/A`, never `0`. Costs are **API-priced estimates**, not necessarily what a subscription is charged, and NEXUS does not guess per-agent cost.
 
 ## Orbit
 
@@ -88,19 +88,21 @@ Orbit is the 0.8 look: near-black, thin panels with an angled corner, and a slow
 | **Lead** | Sonnet | Plans, edits and runs tests, and coordinates the rest. |
 | **Search** | Haiku | Maps the repository: structure, entry points, build and test commands. Read-only. |
 | **Grep** | Haiku | Finds definitions, references and call sites. Read-only. |
-| **Audit** | Haiku | Checks the current change (type-check, tests, lint, a scan of the diff). Reports; never edits. |
+| **Audit** | Haiku | Checks the current change (type-check, tests, lint, a scan of the diff). Reports; never edits (a rule in its instructions: it has the Bash tool, which NEXUS does not filter). |
 | **Test** | Haiku | Runs the project's existing tests and reports what actually ran. Known test commands only. |
 | **Advisor** | Opus | Reviews hard decisions when the lead consults it. Reads, never writes. |
 
 NEXUS **watches** these roles; Claude Code decides when to use one, and several instances of a role can run at once. The Test agent's commands are checked by NEXUS against a per-runner allowlist on top of Claude Code's own permissions. That is a guard on what the agent may ask for, **not isolation**: your project's tests run with your permissions. [Details and limits](mod/nexus/docs/test-agent.md) · [Why only these roles](mod/nexus/docs/haiku-agents-benchmark.md)
 
+The four definitions are not part of the plugin itself: install the companion skill (see [Install](#install)) or copy them to `~/.claude/agents/`. Without them NEXUS still shows whichever subagents Claude Code runs.
+
 ### Council
 
-At a review checkpoint the Opus advisor can call in read-only **Security**, **Architecture** or **Performance** reviewers. Adaptive (default) runs the one it picks, On runs all three, Off keeps the single advisor. Reviewers cannot write, run commands or read secrets. [How it works](mod/nexus/docs/council-and-tool-routing.md)
+At a review checkpoint the lead can call in read-only **Security**, **Architecture** or **Performance** Opus reviewers. Adaptive (default) runs the one the advisor picks, On runs all three, Off keeps the single advisor. Reviewers cannot write or run commands: they get Read, Grep and Glob, plus read-only `git log`, `show` and `blame` when NEXUS grants it, and NEXUS refuses secret-looking paths (a list of spellings, not a guarantee). [How it works](mod/nexus/docs/council-and-tool-routing.md)
 
 ### Jev
 
-An optional router that answers small questions (which file, which tool, retry or stop). It is **observe-only by default**: its answers are drawn, nothing changes. [Jev](mod/nexus/docs/jev.md) · [Cache Guard](mod/nexus/docs/cache-guard.md) (optional, off by default)
+An optional router that answers small questions (which file, which tool, retry or stop). It is **observe-only by default**: its answers are drawn, nothing changes. Jev needs a TypeSafe key (`TYPESAFE_API_KEY` or a Keychain item); without one it stays off. [Jev](mod/nexus/docs/jev.md) · [Cache Guard](mod/nexus/docs/cache-guard.md) (optional, off by default)
 
 ## Settings and telemetry
 

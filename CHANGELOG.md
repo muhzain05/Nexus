@@ -1,9 +1,23 @@
 # Changelog (NEXUS)
 
-## Unreleased (next): a finer black hole
-The black hole is redrawn in Unicode Braille, thin and amber, from a supersampled scene. Stacked on the unreleased 0.8.1 fixes and on the agent-connections work (merge order: the 0.8.1 branch, then the connections branch, then this); the version number is left for the release.
+## 0.8.1 (2026-11-06): Orbit, corrected, with agent connections and a finer black hole
+This release rolls three pieces of work into one version: the corrections to Orbit, the agent connections (how work moves between the lead, subagents, advisor, Council and Jev, drawn only from events Claude Code reported), and the black hole redrawn as thin amber Braille. The pixel-art black hole described under *Orbit, corrected* was replaced by the Braille picture later in the same release; those notes stay as the record of that work. The README demo and stills are real recordings of Claude Code sessions, and the recording tool is in the repository (`.github/scripts/capture`).
 
-### Changed
+- Tests: 301 → 371 → 458 → 479 → **487**, all passing locally with a clean type-check on the release commit (the last 8 are range-choice tests from Doomguy-BFG9000, #9).
+
+### Compatibility and known limits
+- **Hosted CI did not run on this release.** The repository's GitHub Actions are blocked by an account billing lock. The last hosted checks that ran and passed were PR #12's; later runs never started. Everything for this release was run locally instead: `claude plugin validate` (the plugin and both marketplace manifests), the whole test suite, `tsc --noEmit`, the repository and link checks, the capture tool's self-test, and gitleaks over the changes. These are local runs, not a hosted result.
+- Built against Claude Code 2.1.316. The tests also pass on 2.1.319, and the live captures were made in real sessions of 2.1.318 and 2.1.319, in an emulated terminal (not Terminal.app, iTerm2 or Ghostty).
+- The four agent definitions are not part of the plugin; install the companion skill or copy them to `~/.claude/agents/`.
+- The advisor is reported by Claude Code only when its request ends, so Orbit shows it then. Jev stays off without a TypeSafe key.
+
+### Upgrading
+`claude plugin update nexus@muhzain05`, then start a new session. Your theme is kept (Classic stays Classic); switch with `/nexus settings theme orbit`.
+
+### A finer black hole
+The black hole is redrawn in Unicode Braille, thin and amber, from a supersampled scene. Built on the corrections and the agent-connections work below (they merged in that order).
+
+#### Changed
 - **Braille dots, not half blocks.** A cell holds a 2 × 4 grid of dots, so a stroke is one dot thick and a lone dot reads as a point of light. The picture is a dark horizon, a ring of light on its upper edge (bright on the left shoulder, then dashes), a thin warped accretion disk, arcs that peel off the ring, one asymmetric lensed arc, a few dim, separate fragments of the ring below the disk, and particles. 3.8% / 5.2% / 6.5% of the dots are lit (large / medium / small).
 - **Scene, then sampling.** Curves are drawn at 4 times the dot grid's resolution into two fields, coverage and amplitude (`hooks/bhscene.ts`). Which dots exist comes from coverage alone, with a thinning rule so a line is one dot thick; how bright each is comes from its amplitude plus a share of a small glow (`hooks/bhsample.ts`). The glow is blurred brightness cut off at the horizon; it only brightens dots that exist, never lights one. The encoder is `hooks/braille.ts`. Occupancy and brightness are separate, so brightness can never thicken a line.
 - **Palette:** six steps of restrained amber, exact xterm-256 entries (94, 130, 137, 173, 215, 222). Snapping a truecolor ramp to the nearest 256 entry turned its two darkest steps grey and olive in Terminal.app, which Claude Code drives at 256 colours.
@@ -11,17 +25,17 @@ The black hole is redrawn in Unicode Braille, thin and amber, from a supersample
 - **Motion was changed, not only kept.** The wave now dips a bright cell one step and lifts a dim one one step, so no frame is brighter than the resting frame (before, a wave could lift cells above it). Changed cells per frame at large went from 5.7 to 7.3 for that reason; the old renderer changed 11.5. Still brightness only, 24 s (36 s very slow), no redraw while idle, one still frame under reduced motion, timer stopped on teardown.
 - **Without colour** (`NO_COLOR`): the same Braille dots, no colour (before: shade blocks).
 
-### Added
+#### Added
 - **Appearance → Art detail** (`/nexus settings artDetail auto|simple`, default auto, display only). Simple draws the same dots as `'` `.` `:` `*` for fonts without Braille.
 
-### Costs and limits
+#### Costs and limits
 - **First frame costs more:** building the dots takes 10-16 ms per size, and the first `frames()` call 21-25 ms, once per size when it is first drawn (before: 2-4 ms). Per-frame time is unchanged (0.197 ms vs 0.210 ms for the whole dashboard at 120 columns) and so is CPU (0.137% vs 0.136% of one core at 2.5 frames a second). The scene arrays (3.4 MB across the three sizes) are temporary.
 - Cached frames: 672 KB as JSON for all three sizes (before: 867 KB). A full redraw of the large art is 3.4 KB (before: 4.7 KB).
 - 4 times is the lowest sampling that holds: 2 times moves 20-40 dots against 8 times, 4 times moves up to 5, and 8 times costs 28-48 ms per size.
 - **Stills are browser renders, not terminal output.** The images in the docs are Chrome renders of the art in a terminal-style grid, and the live captures are an emulated terminal (pty, pyte, Maple Mono NF), not Terminal.app or kitty. Braille glyph fallback in Terminal.app and kitty (Menlo, SF Mono and MesloLGS have no Braille) is not verified from the emulator.
 - The black hole is coarser than the reference: a Braille dot is much smaller than the reference's squares, and colour is per cell, not per dot.
 
-### Reviewed and validated
+#### Reviewed and validated
 - **Council (checkpoint 9) on the final source diff** (the reviewers read the tests in the tree, not in the diff; the first diff was 118k characters, over the cap).
   - **Security:** no findings. Everything drawn is a space, a Braille character (U+2801 to U+28FF, masked with 0xFF) or one of four fixed characters; colours come from a fixed palette; the one new input, `artDetail`, is validated by `pick`; memory and passes are bounded.
   - **Architecture:** three low findings, fixed: the dot-level horizon rule was written out in three places (now one helper, `inHorizonDot`; the scene's own sub-pixel cut-outs stay local, and the tests check the horizon with their own independent geometry), `simpleChar` counted dots by hand (now `dotCount`), and a stale doc comment. One info note, the first-render build, is measured above.
@@ -29,23 +43,23 @@ The black hole is redrawn in Unicode Braille, thin and amber, from a supersample
   - The edits after the review are that logic-neutral refactor and comments; the full suite was re-run on them, the Council was not.
 - **Live validation:** an emulated terminal (pty, pyte, Maple Mono NF, not Terminal.app or kitty) at 84 and 120 columns: art rows exactly the expected width, every art cell a space or Braille, colours within the palette's six indexes, glyphs identical between frames and only colours changing.
 
-### Tests
+#### Tests
 - Tests: 458 → **479**. The art tests now read the drawn glyphs, not the renderer's own arrays, and a new file covers the scene, the sampler, glow, halo bounds, 2/4/8 times stability and brightness distribution. Goldens: the 23 screen goldens changed in art cells only (checked by replacing every art character with a placeholder); the three hole goldens now list the palette step per cell row. A full run under heavy machine load can hit the 5 s per-test limit (seen once, rerun passed).
 
-### Docs
+#### Docs
 - **The README demo and live stills show the current black hole.** `orbit-live.gif` and the `live-*` stills still showed the 0.8.1 half-block sprite, because they were captured before the Braille renderer. They are regenerated from real Claude Code 2.1.319 sessions: the GIF is one real turn (Sonnet delegates a search to Haiku Search, the result returns, the tape records the hand-back), in a 140-column terminal, so its pane is the 63-column half-screen layout. Captions give the measured pane widths (63, 85, 99, 120 columns; Claude Code gives the pane about 45% of the terminal).
 - **The capture tool is in the repository** (`.github/scripts/capture`): a pty and terminal-emulator recorder, a renderer that draws Braille as dots, and `make.py`, which runs the scenes and renders every image by rules about what is on screen. It is built not to leak: the demo repository is made from tracked files only (`git archive`, so no untracked or ignored files), raw recordings are owner-only and kept outside the repository, every recorded frame is audited (home path, user name, git identity, host name, emails, token shapes) before anything renders, a failure reports the kind of finding and never the text and quarantines the recording, and images are copied into the docs only after every audit and render has succeeded. `selftest.py` checks this without starting Claude Code.
 - The two sample-data images (`sample-alert`, `sample-full-preset`) are drawn from the test fixtures by the current layout code and are labelled as not live. The Classic-theme captures in the plugin README and the dashboard guide are now labelled as Classic. The *Council running* still was removed from the README: it showed the old hole, and a new one needs three real Opus reviews.
 
-## Unreleased (next): Orbit shows how work moves
-Orbit stops being separate status boxes: the lead, advisor, Council, Jev and subagents are connected by marks that follow real events. Stacked on the unreleased 0.8.1 fixes; the version number is left for the release.
+### Orbit shows how work moves
+Orbit stops being separate status boxes: the lead, advisor, Council, Jev and subagents are connected by marks that follow real events. Built on the corrections below.
 
-### Added
+#### Added
 - **Agent connections** (Appearance → *Show agent connections*, on by default in Orbit, display only). A thin line from the lead's edge to the advisor and to each Council reviewer (a short line down into them in a stacked layout), and a mark in each subagent row: `▸` given its task, `◂` result handed back. Done, failed and cancelled keep the state glyph (failures never get a celebratory pulse). Jev shows `◇ observed` for a moment after a choice and is never drawn as an arrow. Idle shows only faint structure; nothing moves without an event. Reduced motion shows the arrival at once.
 - **Activity tape.** Delegations read `SONNET→TEST` and handed-back results `SONNET←TEST`, only for rows the data confirmed; a source column and state symbols; the full tape filters by kind and shows what backs each event.
 - **Flow model** (`hooks/flow.ts`): pure and derived from the records NEXUS already keeps, so the tape and the connections cannot disagree and there is no new timer or stored state.
 
-### Correctness fixes found while building it
+#### Correctness fixes found while building it
 - A subagent that stopped and was then reported as failed or cancelled **now shows as failed or cancelled** (the generic stop report carries no outcome, and used to win if it came first). A finished run never returns to running.
 - A repeated spawn for a known agent no longer resets a finished record; a new delegation to the same id replaces it and is labelled correctly.
 - An agent that is continued (a new Agent call for a finished agent's id, or the same id again with no call id) **shows as running again** with a fresh record, and its earlier hand-back no longer counts for the new run; a late failure after a stop adds one tape row, not a second completion pulse.
@@ -55,12 +69,12 @@ Orbit stops being separate status boxes: the lead, advisor, Council, Jev and sub
 - **Show agent connections: off** now also hides the new hand-back rows from the tape, so Off looks as before.
 - Records are tagged with their session; a record from another session draws no connection.
 
-### Provenance and limits
+#### Provenance and limits
 - Directly observed: the delegation (the Agent call's id on both ends), the start, progress, finish, failure, cancellation, the hand-back of a foreground result, a background completion notice, an advisor consultation (one event), Council reviewer lifecycle, and a Jev answer.
 - Cannot be determined, so not drawn: timeouts, nesting between subagents, whether the model read a result, which action an advisor reply or Jev choice shaped, and (from NEXUS code alone) whether the session id stays the same across a reload, compaction or resume, so a record whose session differs just draws no connection.
 - **Black hole.** Refined toward an amber halftone reference: a single amber hue, sparser dots, a thinner dome. Sizes, placement, animation and teardown are unchanged.
 
-### Reviewed and validated
+#### Reviewed and validated
 - **Council ran twice on the final code**: two checkpoints (the flow, records and layout; then the art plus the fixes made after the first).
   - **Security:** no vulnerabilities in either. One info note: hand-back detection relies on the engine writing its message frame at column zero and indenting the sender's words; display only, nothing gates on it.
   - **Architecture:** findings fixed (a reused agent id, a hand-back counted once, one pulse on a late failure, advisor panel built once). One HIGH in the second checkpoint was a scope artifact: the reviewer read a test at its older version, and the test at the tip is already updated. Two lows: a comment (fixed) and a duplicated disk-row predicate in test-support code (left).
@@ -70,32 +84,32 @@ Orbit stops being separate status boxes: the lead, advisor, Council, Jev and sub
   - Not covered: an abstention was never triggered live; flashes shorter than 0.4 s cannot be seen at the snapshot rate.
 - **Performance:** `orbitLines` mean per call 106–280 µs at 62–120 columns, at most 1.10x the previous build with connections on and 1.02x off; text elements per frame 388–725; art runs per frame at most 86 / 176 / 285 (small / medium / large).
 
-### Tests
+#### Tests
 - Tests: 371 → **458** (87 new since the 0.8.1 branch). Last full run: 458 pass, 0 fail, 26 files, type-check clean.
 
-### Known limits
+#### Known limits
 - The inline log band under the chat (not Orbit's) still prints the hand-back event text when connections are off.
 - Whether the session id survives every reload, compaction or resume cannot be known from NEXUS code. Observed live: `/compact` kept the records, `/clear` starts an empty dashboard.
 - The amber halftone art is coarser than the reference (44 or 64 pixels wide against a 644 px image).
 
-## 0.8.1 (unreleased): Orbit, corrected
+### Orbit, corrected
 A corrective release, not new features. The 0.8.0 black hole did not look like the approved reference, the dashboard's balance was off, and several things had only been checked on sample data. Everything below was also run in a **live Claude Code 2.1.318 session** (screens and measurements in `mod/nexus/docs/screenshots/live-*`).
 
-### Fixed: the black hole
+#### Fixed: the black hole
 - **Root cause.** 0.8.0 drew the picture from geometry: concentric dotted ellipses at even spacing, mirrored top and bottom, a filled disk band of near-constant thickness and a full bright ring round the horizon. That reads as a radar diagram. My own preview also hid how sparse braille looks in a real font (it drew each dot as a solid square). The picture occupied the whole panel width and the words sat under it.
 - **Now** a hand-shaped pixel-art picture in square half-block pixels: a dark horizon with a thin dim inner arc, a dome of layered light lifted over it, a thin tapering disk that crosses the horizon's lower edge, a faint detached bowl under it, and isolated particles. Lopsided on purpose (the left of the disk is hotter, the dome brighter than the bowl). Dark areas are empty cells, never a dark colour, so the horizon stays dark without colour; `NO_COLOR` draws in shades. The palette is eight steps that are exact xterm-256 colours.
 - **Three compositions**, tuned apart (30×7, 44×10, 64×14 cells), chosen by the room the panel has, never stretched.
 - **Animation** changes brightness only, by at most one palette step; which pixels are lit never changes, so the horizon and silhouette are fixed. 24 s cycle (36 s Very slow), 60 frames. The tick is now 400 ms (the frames change 2.5 times a second; a faster timer only repeated a frame).
 - Before and after at real cell size: `docs/screenshots/blackhole-before-after.png`. The static frame was reviewed against the reference and approved before the animation was built.
 
-### Fixed: the dashboard
+#### Fixed: the dashboard
 - The lead's words sit beside the picture where there is room (the picture is now about a third of the panel), and the lead is no longer the tallest thing on screen.
 - No panel is stretched to fill space: the 0.8.0 wide layout spread spare rows as blank gaps between the right-hand panels. The advisor and Council now sit side by side (or beside the lead from 112 columns), Jev is a full-width row, and any leftover is blank below, not between.
 - Subagent rows lost their turn meters: `28/30 turns`, state and time are in fixed columns.
 - The dashboard fits the pane's height: if it would be taller, the blank rows between groups go first (found live: at a 62-column pane Usage was cut off).
 - A cut-off message in the idle subagent panel was shortened (found live).
 
-### Fixed: settings
+#### Fixed: settings
 - *Reduced motion* offered a value of `full`; it is now **Motion** with plain values (Follow Claude Code, Always animate, Reduced, Off).
 - Appearance had two layout settings; `layout` moved to Advanced (**Dashboard layout**). `agentDetail`, a display setting, moved out of Agents to Usage & Stats, so Agents holds only what changes what agents may do.
 - Every setting that changes what agents may do says so on its own line (`! changes what agents may do`).
@@ -103,10 +117,10 @@ A corrective release, not new features. The 0.8.0 black hole did not look like t
 - Buttons printed their hotkey twice (`b: [b] back`); found live, fixed.
 - Direct tests for numeric settings choices: small and wide ranges, the current value and default, deduplication, and common pane widths with `max` last. A range with thirteen integers now uses six sampled choices instead of being treated as twelve (PR #9).
 
-### Fixed: teardown
+#### Fixed: teardown
 - The frame timer kept running after the session ended and after the pane was closed mid-turn. It now stops on `session.end` and on the pane closing, and starts again when the pane reopens (tests verified by removing each fix).
 
-### Security: the Test agent
+#### Security: the Test agent
 - **Reviewed again from scratch** with an adversarial pass and all three Council reviewers over six checkpoints (security, architecture, performance each time). Each round found real gaps, all fixed with a test that fails without the fix: a non-existent path under a symlinked folder; a leading `~`; a link whose target is a secret; Read, Glob and Grep paths and patterns (including `{ , ( |` groups) reaching outside the repository; a link whose own name looks like a test selector (`evil[1]`); unlisted tool fields silently dropped (now an allowlist per tool); a transient git failure remembered as "not a repository" (now only git's own exit code 128 is). The final checkpoint's security review found no defects.
 - Path arguments are resolved through symlinks and must stay inside the repository; a file that does not exist yet is judged by its nearest existing parent (found by a test: it slipped through before).
 - Commands must be plain ASCII. A shell splits words on a space or a tab only, while the check split on any Unicode whitespace, so a command could mean different things to each.
@@ -114,16 +128,16 @@ A corrective release, not new features. The 0.8.0 black hole did not look like t
 - New refusal tests: alternate executables and wrappers (`env`, `command`, `./node_modules/.bin/jest`), look-alike and invisible characters, quoting tricks, repeated and reordered flags, environment words in every position, and an agent told in its task that it may run anything.
 - The Test agent is still **not isolation**: the project's tests run with your permissions.
 
-### Tests and checks
+#### Tests and checks
 - 301 → **371** tests, all passing locally with a clean type-check. New: golden screens for 17 fixtures (dashboards at 60/80/100/120 columns, telemetry presets, Council, four agents, the black hole's three frames), teardown, symlinks, adversarial commands.
 - Measured in a live session: idle CPU about 3% with about 5 B/s of terminal output for both themes; while working, Orbit 5.4% and 203 B/s against Classic 6.9% and 373 B/s (figures include Claude Code itself). Frame generation: all 60 frames of the large picture in under 6 ms, under 1.7 MB cached; a full layout in about 0.2 ms.
 - **Timing flake explained.** Each test file runs in its own process that compiles the plugin, with a 5 s limit per test. The same two Council tests that take 0.25 s alone timed out at 5 s when 23 files started at once on a machine under memory pressure (load 15, about 1.9 GB free). CI now retries the test step once and prints the first failure. Timeouts were not raised.
 
-### Known limits
+#### Known limits
 - **Live validation covered** `/nexus` open and close, theme switching, settings with the keyboard, a resize, four pane widths (62, 84, 100 and 120 columns), a real Haiku subagent pair and Jev telemetry. **Not covered live:** Council reviewers (three Opus reviews cost too much for a smoke test; they are covered by tests) and a terminal other than the emulated one used to capture (Terminal.app, iTerm2 and Ghostty were not driven).
-- The README demo is a sequence of real screens about 1.6 s apart, not a smooth video.
-- Pixel art at 44 or 64 pixels wide is chunkier than the 125-pixel reference it follows.
-- The secret-scanner finding on an earlier commit (`2a847ee49c`) could not be classified from safe evidence, and no value was read or printed. It is left to the repository owner to check and decide (rotate, and whether to rewrite history); nothing was rewritten.
+- *(Superseded: the README demo is now a real recording of one turn at 8 frames a second, in an emulated terminal.)*
+- *(Superseded: the pixel-art picture was replaced by the Braille one described under A finer black hole.)*
+- **Secret-scanner finding, triaged.** A scanner flagged a test constant in an early commit (`2a847ee49c`, `jev.test.ts`, later renamed). Checked on 2026-11-06 without printing the value: it is a hand-typed placeholder (a short word, `_test_`, then an alphabet-and-digits sequence with a 10-character ascending run that a random key cannot have), used only as a mock Keychain value that the tests assert never reaches the pane or the log. It was replaced by an obviously fake value in `cb89ce8`, and the current tree scans clean. History was not rewritten, and nothing needs rotating.
 - The last small fixes after the sixth Council checkpoint (shared width step for measuring and trimming, structural Glob check, de-duplicated gate paths, git exit-code check) were covered by tests and a clean type-check but were not shown to the reviewers again.
 
 ## 0.8.0 (2026-11-04): Orbit

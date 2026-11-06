@@ -21,6 +21,14 @@ The black hole is redrawn in Unicode Braille, thin and amber, from a supersample
 - **Stills are browser renders, not terminal output.** The images in the docs are Chrome renders of the art in a terminal-style grid, and the live captures are an emulated terminal (pty, pyte, Maple Mono NF), not Terminal.app or kitty. Braille glyph fallback in Terminal.app and kitty (Menlo, SF Mono and MesloLGS have no Braille) is not verified from the emulator.
 - The black hole is coarser than the reference: a Braille dot is much smaller than the reference's squares, and colour is per cell, not per dot.
 
+### Reviewed and validated
+- **Council (checkpoint 9) on the final source diff** (the reviewers read the tests in the tree, not in the diff; the first diff was 118k characters, over the cap).
+  - **Security:** no findings. Everything drawn is a space, a Braille character (U+2801 to U+28FF, masked with 0xFF) or one of four fixed characters; colours come from a fixed palette; the one new input, `artDetail`, is validated by `pick`; memory and passes are bounded.
+  - **Architecture:** three low findings, fixed: the dot-level horizon rule was written out in three places (now one helper, `inHorizonDot`; the scene's own sub-pixel cut-outs stay local, and the tests check the horizon with their own independent geometry), `simpleChar` counted dots by hand (now `dotCount`), and a stale doc comment. One info note, the first-render build, is measured above.
+  - **Performance:** one low and two info findings, all one-time or inactive: the build per size (measured above), allocations in the thinning pass, and a halo selection that is quadratic but off in the shipped picture (the halo is rejected and its default is 0).
+  - The edits after the review are that logic-neutral refactor and comments; the full suite was re-run on them, the Council was not.
+- **Live validation:** an emulated terminal (pty, pyte, Maple Mono NF, not Terminal.app or kitty) at 84 and 120 columns: art rows exactly the expected width, every art cell a space or Braille, colours within the palette's six indexes, glyphs identical between frames and only colours changing.
+
 ### Tests
 - Tests: 458 → **479**. The art tests now read the drawn glyphs, not the renderer's own arrays, and a new file covers the scene, the sampler, glow, halo bounds, 2/4/8 times stability and brightness distribution. Goldens: the 23 screen goldens changed in art cells only (checked by replacing every art character with a placeholder); the three hole goldens now list the palette step per cell row. A full run under heavy machine load can hit the 5 s per-test limit (seen once, rerun passed).
 

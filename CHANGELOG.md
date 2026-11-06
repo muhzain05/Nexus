@@ -23,6 +23,7 @@ A corrective release, not new features. The 0.8.0 black hole did not look like t
 - Every setting that changes what agents may do says so on its own line (`! changes what agents may do`).
 - Cache Guard's limits appear only once Cache Guard is on; Council *on* shows its token warning in Agents.
 - Buttons printed their hotkey twice (`b: [b] back`); found live, fixed.
+- Direct tests for numeric settings choices: small and wide ranges, the current value and default, deduplication, and common pane widths with `max` last. A range with thirteen integers now uses six sampled choices instead of being treated as twelve (PR #9).
 
 ### Fixed: teardown
 - The frame timer kept running after the session ended and after the pane was closed mid-turn. It now stops on `session.end` and on the pane closing, and starts again when the pane reopens (tests verified by removing each fix).

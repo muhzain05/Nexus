@@ -1,9 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 
-import { DIMENSIONS, PALETTE, bhText, drawBlackHole } from '../hooks/blackhole'
-import type { BhSprite } from '../hooks/blackhole'
+import { DIMENSIONS, bhText, drawBlackHole } from '../hooks/blackhole'
 import { orbitLines } from '../hooks/orbitlayout'
-import { FIXTURES, HOLE_SIZES } from './fixtures'
+import { FIXTURES, HOLE_SIZES, holeSteps } from './fixtures'
 import agent_failed from './golden/agent-failed'
 import compact_80 from './golden/compact-80'
 import council_active from './golden/council-active'
@@ -80,28 +79,10 @@ for (const f of FIXTURES) {
   })
 }
 
-const steps = (sprite: BhSprite): string[] => {
-  const W = sprite[0]!.reduce((n, r) => n + r.text.length, 0)
-  const rows: string[] = []
-  sprite.forEach(runs => {
-    let top = ''
-    let bottom = ''
-    for (const run of runs) {
-      for (const ch of run.text) {
-        const at = (hex?: string) => (hex ? String(PALETTE.indexOf(hex as (typeof PALETTE)[number]) + 1) : '.')
-        top += ch === '▀' ? at(run.fg) : '.'
-        bottom += ch === '▀' ? at(run.bg) : ch === '▄' ? at(run.fg) : '.'
-      }
-    }
-    rows.push(top.padEnd(W, '.'), bottom.padEnd(W, '.'))
-  })
-  return rows
-}
-
 for (const size of HOLE_SIZES) {
   test(`golden black hole: ${size} resting frame, glyphs and colours`, () => {
     const sprite = drawBlackHole(size, null)
-    same(`hole-${size}`, [...bhText(sprite), '--- palette steps, one row per pixel row ---', ...steps(sprite)])
+    same(`hole-${size}`, [...bhText(sprite), '--- palette steps, one row per cell row ---', ...holeSteps(sprite)])
     expect(DIMENSIONS[size].rows).toBe(sprite.length)
   })
 }

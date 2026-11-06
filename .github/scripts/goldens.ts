@@ -3,10 +3,9 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { DIMENSIONS, PALETTE, bhText, drawBlackHole } from '../../mod/nexus/hooks/blackhole'
-import type { BhSprite } from '../../mod/nexus/hooks/blackhole'
+import { DIMENSIONS, bhText, drawBlackHole } from '../../mod/nexus/hooks/blackhole'
 import { orbitLines } from '../../mod/nexus/hooks/orbitlayout'
-import { FIXTURES, HOLE_SIZES } from '../../mod/nexus/tests/fixtures'
+import { FIXTURES, HOLE_SIZES, holeSteps } from '../../mod/nexus/tests/fixtures'
 
 const out = join(process.argv[2] ?? '.', 'mod/nexus/tests/golden')
 mkdirSync(out, { recursive: true })
@@ -16,26 +15,9 @@ const module = (name: string, rows: string[]) =>
 
 for (const f of FIXTURES) module(f.name, orbitLines(f.state(), f.width).map(l => l.map(g => g.t).join('')))
 
-const steps = (sprite: BhSprite): string[] => {
-  const W = sprite[0]!.reduce((n, r) => n + r.text.length, 0)
-  const rows: string[] = []
-  sprite.forEach(runs => {
-    let top = ''
-    let bottom = ''
-    for (const run of runs) {
-      for (const ch of run.text) {
-        const at = (hex?: string) => (hex ? String(PALETTE.indexOf(hex as (typeof PALETTE)[number]) + 1) : '.')
-        top += ch === '▀' ? at(run.fg) : '.'
-        bottom += ch === '▀' ? at(run.bg) : ch === '▄' ? at(run.fg) : '.'
-      }
-    }
-    rows.push(top.padEnd(W, '.'), bottom.padEnd(W, '.'))
-  })
-  return rows
-}
 for (const size of HOLE_SIZES) {
   const sprite = drawBlackHole(size, null)
-  module(`hole-${size}`, [...bhText(sprite), '--- palette steps, one row per pixel row ---', ...steps(sprite)])
+  module(`hole-${size}`, [...bhText(sprite), '--- palette steps, one row per cell row ---', ...holeSteps(sprite)])
   if (DIMENSIONS[size].cols < 1) throw new Error('unreachable')
 }
 console.log(`wrote ${FIXTURES.length + HOLE_SIZES.length} goldens to ${out}`)

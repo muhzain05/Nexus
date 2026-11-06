@@ -29,7 +29,7 @@ Orbit is the default for new installs. If you used NEXUS before 0.8 you stay on 
 <sub>A real Claude Code session, the pane about 84 columns wide.</sub>
 
 - **Header:** wordmark, mode, theme, the lead's state, context and Cache Guard when they are shown.
-- **Lead:** the Sonnet session. At widths where it fits, the pixel-art black hole sits at the left and the model name, effort and state sit beside it; narrower, the words go under a smaller picture.
+- **Lead:** the Sonnet session. At widths where it fits, the black hole sits at the left and the model name, effort and state sit beside it; narrower, the words go under a smaller picture.
 - **Advisor, Council and Jev:** the advisor (calls, last consultation, what it read and how long it took), the Council reviewers with timings and findings, and Jev's routing answers, labelled *observe only* or *active*. In wide panes the advisor and Council sit beside the lead; otherwise side by side under it. No panel is stretched to fill space.
 - **Subagents:** one row per instance, running first: task, turns, state and time. Any number of instances of any role (`search`, `grep`, `audit`, `test`); beyond six the rest are counted (`+3 more`). A long task name shrinks first; the state and time never do.
 - **Activity:** a compact tape (agent started, finished or failed, advisor consulted, Council, Jev, test results). Repeats are dropped. Press `a` for the full tape.
@@ -38,13 +38,26 @@ Orbit is the default for new installs. If you used NEXUS before 0.8 you stay on 
 
 ### The black hole
 
-It is drawn in square pixels (a half block is a square at a terminal's usual 1:2 cell shape) with a fixed eight-step dark-red-to-amber palette whose colours are exact xterm-256 entries, so a 256-colour terminal shows the same picture. Dark areas (the horizon, the sky) are cells with no colour at all, so a terminal without colour still shows the horizon as empty (set `NO_COLOR` and it draws in shades).
+It is drawn in Unicode Braille: a terminal cell holds a 2 × 4 grid of dots, so a stroke is one dot thick and a cell with a single dot reads as a point of light, not a block. The picture is a dark **event horizon** (empty cells; nothing may light it), a **ring** of light on its upper edge that is bright on the left shoulder and breaks into dashes to the right, a thin, slightly warped **accretion disk** that crosses the horizon a little below its centre, arcs that **peel off the ring** on the left and drift away, one asymmetric **lensed arc** over the top, a few separate, dim fragments of the ring **below** the disk, and a handful of particles. Most of it is black.
 
-Three compositions are tuned separately, not one picture scaled: **small** (30×7 cells: horizon, dome and a thin disk), **medium** (44×10: adds the inner arc, the lensed bowl and particles) and **large** (64×14: adds contour bands and disk streaks). The largest that fits is used; none is stretched.
+Colour is six steps of restrained amber, each an exact xterm-256 entry (94, 130, 137, 173, 215, 222), so a 256-colour terminal such as Terminal.app shows what a true-colour one does. Colour belongs to a cell, not to a dot, so the dots of one cell share it. Dark areas are cells with no colour at all; with `NO_COLOR` the same dots are drawn uncoloured.
 
-![v0.8.0 against v0.8.1 at real cell size](screenshots/blackhole-before-after.png)
+How it is made, in four stages that only hand each other what they need:
 
-Motion is slow and only changes brightness, by at most one palette step: a warm wave along the disk, a slower ripple through the dome, a gentle twinkle of the particles. Which pixels are lit never changes, so the horizon and the silhouette are fixed. One cycle is 24 seconds (36 on *Very slow*) in 60 frames, drawn about 2.5 times a second while work runs, and not at all when the session is idle, the pane is closed or the session has ended. Reduced motion draws one still frame and runs no timer.
+1. **Scene.** The curves are drawn as thin soft light at 4 times the dot grid's resolution, as two fields: where light is (*coverage*) and how bright it is (*amplitude*). A curve is where it really is, not rounded to the nearest dot.
+2. **Sampling.** Which dots exist comes from coverage alone (enough of the dot covered, a strong core, and the best dot across the line), then a thinning pass, so a line is one dot thick and brightness can never ask for more dots. How bright a lit dot is comes from its amplitude plus a share of the **glow** around it: the brightness field, blurred a little and cut off at the horizon. Glow only brightens dots that exist; it never lights one.
+3. **Cells.** Eight dots per cell; the cell takes its brightest dot's colour.
+4. **Motion.** Brightness only (below).
+
+Three compositions are designed separately, not one picture scaled: **small** (30×7 cells: horizon, ring, disk, arc, one lower fragment), **medium** (44×10: adds the arcs that peel off the ring and more particles) and **large** (64×14: adds a third lower fragment and the larger particles). The largest that fits is used; none is stretched. A cell's width over its height (`CELL_ASPECT`, 0.5) is the one constant that ties the picture to a font; the shapes are composed in physical units, so the horizon stays a circle.
+
+![The three sizes at real cell size](screenshots/blackhole-precision-natural.png)
+
+![Before and after: v0.8.1, the halftone before this change, and now](screenshots/blackhole-precision-before-after.png)
+
+Motion is slow and only changes brightness, by at most one palette step, and never above the resting frame's brightest step: a wave along the disk, a glint that travels round the ring, a slower ripple along the arcs, a gentle twinkle of the particles. As a wave passes, a bright cell dips a step and a dim one rises a step. Which dots are lit never changes, so the horizon and the silhouette are fixed. One cycle is 24 seconds (36 on *Very slow*) in 60 frames, drawn about 2.5 times a second while work runs, and not at all when the session is idle, the pane is closed or the session has ended. Reduced motion draws one still frame and runs no timer. Frames are built once per size and cached.
+
+**If you see boxes or gaps instead of dots**, your font has no Braille. Choose **Appearance → Art detail → Simple** (`/nexus settings artDetail simple`): the same dots as `'` `.` `:` `*`, drawn from the same shapes. Some common coding fonts (Menlo, SF Mono, MesloLGS) have no Braille of their own, so the system substitutes another font for those cells; it was checked in a browser only, so how your terminal handles it can differ, and Simple is there for when it looks wrong.
 
 ### Width
 

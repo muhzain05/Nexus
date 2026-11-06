@@ -28,6 +28,10 @@ The Test agent is optional. Copy `skills/nexus/agents/nexus-test.md` to `~/.clau
 
 It moves only while the session is working, and not at all under reduced motion (`/nexus settings animation` is `reduced` or `off`, or Claude Code's own *reduce motion* is on). That is deliberate: nothing redraws while idle.
 
+### The black hole shows boxes, or the dots look uneven.
+
+The picture is drawn in Unicode Braille. If your terminal font has no Braille, or draws it at another width, use **Appearance → Art detail → Simple** (`/nexus settings artDetail simple`), which draws the same shapes with `'` `.` `:` `*`. `NO_COLOR` keeps the dots and removes the colour.
+
 ### Does NEXUS change my Claude Code settings?
 
 No. Its preferences live in the plugin's own store, and modes apply to the current session only.

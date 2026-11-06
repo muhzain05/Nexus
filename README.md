@@ -8,9 +8,9 @@
 
 [Install](#install) · [Quick start](#quick-start) · [Orbit](#orbit) · [Agents](#agents) · [Settings](#settings-and-telemetry) · [Commands](#commands) · [Docs](#documentation)
 
-<img src="mod/nexus/docs/media/orbit-demo.gif" alt="The NEXUS Orbit dashboard: a slowly drifting black hole for the Sonnet lead, the Opus advisor and Council, Jev routing, and four Haiku subagents with turns and timings" width="100%">
+<img src="mod/nexus/docs/media/orbit-live.gif" alt="A real Claude Code session with the NEXUS Orbit pane: two Haiku subagents (search and grep) start in parallel, Jev routes a tool choice, the activity tape fills in, and the agents finish" width="55%">
 
-<sub>The Orbit dashboard, one 24-second cycle of the black hole. <b>Rendered by NEXUS's own layout code from sample data</b>, not a live session: the names, numbers and timings are illustrative. <a href="mod/nexus/docs/screenshots/orbit-dashboard.png">Full-size still</a></sub>
+<sub>The Orbit pane in a **real Claude Code 2.1.318 session**, docked beside the conversation, while two Haiku subagents run. Frames are screens captured from the live terminal about 1.6 seconds apart (so the black hole's slow drift looks jumpy here, and is smooth in the terminal); the numbers are the session's own. <a href="mod/nexus/docs/screenshots/live-pane-80.png">Full-size still</a> · <a href="mod/nexus/docs/screenshots/blackhole-before-after.png">black hole, v0.8.0 vs v0.8.1</a></sub>
 
 </div>
 
@@ -63,22 +63,22 @@ No terminal wrapper and no patched binary: it is a native Claude Code plugin, an
 
 ## Orbit
 
-Orbit is the 0.8 look: near-black, thin panels with an angled corner, and a slow black hole for the Sonnet lead that moves only while work is running. It is built to sit in a split terminal, so it is designed for 60 to 100 columns and adapts above and below that.
+Orbit is the 0.8 look: near-black, thin panels with an angled corner, and a slow pixel-art black hole for the Sonnet lead that moves only while work is running. It is built to sit in a split terminal, so it is designed for 60 to 100 columns and adapts above and below that.
 
 <table>
 <tr>
-<td width="50%"><img src="mod/nexus/docs/screenshots/orbit-half-screen.png" alt="Orbit at 80 columns, as a half-screen split"></td>
-<td width="50%"><img src="mod/nexus/docs/screenshots/orbit-settings.png" alt="The Orbit settings menu with four sections"></td>
+<td width="50%"><img src="mod/nexus/docs/screenshots/live-pane-80.png" alt="Orbit in a live 84-column pane, beside the conversation"></td>
+<td width="50%"><img src="mod/nexus/docs/screenshots/live-settings-menu.png" alt="The settings menu with four sections, in a live session"></td>
 </tr>
 <tr>
-<td><sub>80 columns (half-screen). Sample data.</sub></td>
-<td><sub>Settings: Appearance, Agents, Usage &amp; Stats, Advanced.</sub></td>
+<td><sub>A live 84-column pane (half-screen).</sub></td>
+<td><sub>Settings: Appearance, Agents, Usage &amp; Stats, Advanced (live).</sub></td>
 </tr>
 </table>
 
-- **Animation:** Black hole (default), Classic orbit, or Off; Slow or Very slow. Reduced motion draws one still frame and runs no timer, and nothing redraws while the session is idle.
+- **Animation:** Black hole (default), Classic orbit, or Off; Slow or Very slow. The black hole is pixel art in three sizes that fit the pane; only its brightness moves, and only while work runs. Reduced motion draws one still frame, and nothing redraws while the session is idle or the pane is closed.
 - **Classic** is still there and unchanged: `/nexus settings theme classic`.
-- More stills: [narrow](mod/nexus/docs/screenshots/orbit-narrow.png), [with a failure](mod/nexus/docs/screenshots/orbit-alert.png), [Full preset](mod/nexus/docs/screenshots/orbit-full-preset.png).
+- More live stills: [62 columns](mod/nexus/docs/screenshots/live-pane-60.png) · [100](mod/nexus/docs/screenshots/live-pane-100.png) · [120](mod/nexus/docs/screenshots/live-pane-120.png) · [agents running](mod/nexus/docs/screenshots/live-agents-running.png) · [Agents settings](mod/nexus/docs/screenshots/live-settings-agents.png). Rendered from sample data (not live): [a failure](mod/nexus/docs/screenshots/sample-alert.png), [the Full preset](mod/nexus/docs/screenshots/sample-full-preset.png).
 
 ## Agents
 

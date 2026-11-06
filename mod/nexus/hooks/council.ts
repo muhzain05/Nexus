@@ -369,7 +369,7 @@ export function normalizePath(path: string, base: string): string {
   return `/${parts.join('/')}`
 }
 
-const within = (path: string, root: string) => path === root || path.startsWith(root.endsWith('/') ? root : `${root}/`)
+export const within = (path: string, root: string) => path === root || path.startsWith(root.endsWith('/') ? root : `${root}/`)
 
 /** Names a wildcard glob must not be able to match: a whitelist glob makes ripgrep search files .gitignore hides. */
 const SECRET_SAMPLES = [

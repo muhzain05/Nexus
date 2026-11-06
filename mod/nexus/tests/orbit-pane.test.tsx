@@ -5,11 +5,11 @@ const pane = (bodyColumns: number, isFocused = false, placement: 'dock' | 'inlin
   ({ plugin: 'nexus', component: 'Pane', requestId: 'nexus', surface: 'terminal', props: { title: 'NEXUS', isFocused, bodyColumns, placement, scroll: { offset: 0, bodyRows: 46 }, view: {} } }) as const
 
 /** `stored` undefined: a first run (an empty store). */
-function engine(on: On, stored?: Record<string, unknown>, unreadable = false) {
+function engine(on: On, stored?: Record<string, unknown>, unreadable = false, env: Record<string, string> = {}) {
   const opened: { id: string; backgroundColor?: string; columns?: number }[] = []
   const saved: Record<string, unknown> = { ...(stored ?? {}) }
   mock.clock(on, { now: 4_000_000 })
-  mock.env(on, { HOME: '/home/test' })
+  mock.env(on, { HOME: '/home/test', ...env })
   on('store.get', (_, e) => (unreadable ? { deny: 'disk busy' } : { value: saved[String(e.key)] }) as any)
   on('store.set', (_, e) => ((saved[String(e.key)] = e.value), { value: undefined }) as any)
   on('settings.read', () => ({ value: { advisorModel: 'opus' } }))
@@ -31,7 +31,7 @@ async function texts($: any, width: number, isFocused = false, placement: 'dock'
   await ui.unmount()
   return out
 }
-const hole = (t: string) => (t.match(/[⠀-⣿]/g) ?? []).length
+const hole = (t: string) => (t.match(/[▀▄]/g) ?? []).length
 
 test('a first run opens Orbit with the black hole; a store from v0.7 stays on Classic', async ($, on) => {
   const e = engine(on)
@@ -39,7 +39,7 @@ test('a first run opens Orbit with the black hole; a store from v0.7 stays on Cl
   const orbit = await texts($, 100)
   expect(orbit).toMatch(/Lead session/)
   expect(orbit).toMatch(/NEXUS/)
-  expect(hole(orbit)).toBeGreaterThan(100)
+  expect(hole(orbit)).toBeGreaterThan(40)
   // The pane opens with Orbit's near-black background.
   expect(e.opened.at(-1)?.backgroundColor).toBe('#0a0b0f')
 })
@@ -69,11 +69,11 @@ test('every pane width draws: wide to narrow, and a list when it is too small', 
 test('the black hole can be switched: classic orbit, off, and back; theme switching is live and saved', async ($, on) => {
   const e = engine(on)
   await start($)
-  expect(hole(await texts($, 100))).toBeGreaterThan(100)
+  expect(hole(await texts($, 100))).toBeGreaterThan(40)
   expect(await run($, 'settings centerpiece off')).toMatch(/centerpiece → off \(saved for later sessions\)/)
   expect(hole(await texts($, 100))).toBe(0)
   await run($, 'settings centerpiece blackhole')
-  expect(hole(await texts($, 100))).toBeGreaterThan(100)
+  expect(hole(await texts($, 100))).toBeGreaterThan(40)
   const before = e.opened.length
   await run($, 'settings theme classic')
   expect(await texts($, 120)).toMatch(/main session/)
@@ -111,10 +111,13 @@ test('settings: four plain sections, each opening its own page', async ($, on) =
   expect(menu).toMatch(/orbit · black hole/)
   // The menu does not list the advanced options.
   expect(menu).not.toMatch(/Cache Guard idle minutes/)
+  expect(menu).not.toMatch(/Agent detail/)
   await run($, 'settings appearance')
   const page = await texts($, 100)
   expect(page).toMatch(/Settings\s*\n?›|Appearance/)
-  for (const t of ['Theme', 'Animation', 'Animation speed', 'Layout width', 'Display density', 'Reduced motion']) expect(page).toContain(t)
+  for (const t of ['Theme', 'Animation', 'Animation speed', 'Layout width', 'Display density', 'Motion']) expect(page).toContain(t)
+  // One layout setting, in Advanced: Appearance is only about look and motion.
+  expect(page).not.toMatch(/Dashboard layout/)
   expect(page).toMatch(/default/)
   await run($, 'settings agents')
   const agents = await texts($, 100)
@@ -122,7 +125,16 @@ test('settings: four plain sections, each opening its own page', async ($, on) =
   expect(agents).toMatch(/Council mode/)
   expect(agents).toMatch(/search · grep · audit · test/)
   expect(agents).toMatch(/Operating mode/)
+  // Only things that change what agents may do are in Agents, and each says so.
+  expect(agents).not.toMatch(/Agent detail/)
+  expect(agents.match(/changes what agents may do/g)?.length).toBe(3)
   await run($, 'settings advanced')
+  const adv = await texts($, 100)
+  expect(adv).toMatch(/Dashboard layout/)
+  // Cache Guard's limits appear only once it is on.
+  expect(adv).not.toMatch(/Cache Guard idle minutes/)
+  expect(adv).toMatch(/Turn Cache Guard on to set its limits/)
+  await run($, 'settings cacheGuard.enabled on')
   expect(await texts($, 100)).toMatch(/Cache Guard idle minutes/)
 })
 
@@ -238,4 +250,26 @@ test('minimal preset hides numbers but keeps agents and a failure in view', asyn
   const t = await texts($, 100)
   expect(t).toMatch(/Subagents/)
   expect(t).not.toMatch(/Activity|Usage|cost/)
+})
+
+test('NO_COLOR draws the black hole in shades, with no colour on any cell; TERM=dumb does too', async ($, on) => {
+  engine(on, undefined, false, { NO_COLOR: '1' })
+  await start($)
+  const ui = await $.ui.mount(pane(100))
+  const rows = (await ui.findAll({ type: 'Text' })).filter((n: any) => /[▀▄░▒▓█]/.test(n.text ?? '') && Array.isArray(n.children))
+  const text = rows.map((n: any) => n.text).join('\n')
+  const cells = rows.flatMap((n: any) => n.children).filter((c: any) => c && typeof c === 'object' && /^[ ▀▄░▒▓█]+$/.test(String(c.children?.[0] ?? '')) && /[▀▄░▒▓█]/.test(String(c.children?.[0])))
+  await ui.unmount()
+  expect(text).toMatch(/[░▒▓█]/)
+  expect(cells.length).toBeGreaterThan(5)
+  for (const c of cells) expect([c.props?.color, c.props?.backgroundColor]).toEqual([undefined, undefined])
+})
+
+test('without NO_COLOR the same pane draws colours', async ($, on) => {
+  engine(on)
+  await start($)
+  const ui = await $.ui.mount(pane(100))
+  const coloured = (await ui.findAll({ type: 'Text' })).filter((n: any) => n.props?.backgroundColor && /▀/.test(String(n.children?.[0] ?? '')))
+  await ui.unmount()
+  expect(coloured.length).toBeGreaterThan(20)
 })

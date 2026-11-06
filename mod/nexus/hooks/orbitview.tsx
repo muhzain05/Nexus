@@ -1,5 +1,6 @@
 // The Orbit theme's pane: the dashboard from orbitlayout.ts, the four-section settings and the
 // full activity tape. Classic's views stay in views.tsx and are untouched.
+import { ON_WARNING } from './council'
 import { clock, pad } from './format'
 import { O, fitLine, header, keysLine, orbitLines, tapeRows } from './orbitlayout'
 import type { Line } from './orbitlayout'
@@ -16,7 +17,7 @@ function Row({ el, line, id }: { el: El; line: Line; id: string }) {
   return (
     <Text key={id}>
       {line.map((g, i) => (
-        <Text key={`${id}-${i}`} color={g.c} bold={g.b}>
+        <Text key={`${id}-${i}`} color={g.c} backgroundColor={g.bg} bold={g.b}>
           {g.t}
         </Text>
       ))}
@@ -37,17 +38,17 @@ function Keys({ el, s, act, width }: { el: El; s: Snapshot; act: Actions; width:
   const list = s.agents.slice(-9)
   return (
     <Box flexWrap="wrap" columnGap={2} width={width}>
-      <Button key="orbit-settings" hotkey="s" label="[s] settings" plain onPress={() => act.settings()} />
-      <Button key="orbit-activity" hotkey="a" label="[a] activity" plain onPress={() => act.activity()} />
+      <Button key="orbit-settings" hotkey="s" label="settings" plain onPress={() => act.settings()} />
+      <Button key="orbit-activity" hotkey="a" label="activity" plain onPress={() => act.activity()} />
       {list.map((a, i) => (
-        <Button key={`inspect-${a.id}`} hotkey={String(i + 1)} label={`[${i + 1}] ${a.label}`} plain dimColor={a.status !== 'running'} onPress={() => act.inspect(a.id)} />
+        <Button key={`inspect-${a.id}`} hotkey={String(i + 1)} label={a.label} plain dimColor={a.status !== 'running'} onPress={() => act.inspect(a.id)} />
       ))}
       <Text color={O.dim}>ctrl+x tab to leave</Text>
     </Box>
   )
 }
 
-function Back({ el, act, label = '[b] back' }: { el: El; act: Actions; label?: string }) {
+function Back({ el, act, label = 'back' }: { el: El; act: Actions; label?: string }) {
   const { Button, Text } = el
   return Button && act.isFocused ? <Button key="orbit-back" hotkey="b" label={label} plain onPress={() => act.back()} /> : <Text color={O.dim}>b or /nexus back</Text>
 }
@@ -86,6 +87,7 @@ export function rangeChoices(spec: Setting, current: string, def: string): strin
 export function valueLabel(key: string, v: string): string {
   if (key === 'centerpiece') return { blackhole: 'Black hole', classic: 'Classic orbit', off: 'Off' }[v] ?? v
   if (key === 'animationSpeed') return { slow: 'Slow', veryslow: 'Very slow' }[v] ?? v
+  if (key === 'animation') return { auto: 'Follow Claude Code', full: 'Always animate', reduced: 'Reduced', off: 'Off' }[v] ?? v
   if (key === 'testRunner') return { allowlist: 'Known test commands', off: 'Off' }[v] ?? v
   if (key === 'telemetry.preset') return v.charAt(0).toUpperCase() + v.slice(1)
   return v
@@ -114,7 +116,7 @@ function SettingRow({ el, s, act, spec, width }: { el: El; s: Snapshot; act: Act
           <Text color={O.dim}>{now === def ? '  default' : `  default ${valueLabel(spec.key, def)}`}</Text>
         </Text>
       )}
-      <Text color={O.dim}>  {spec.help}</Text>
+      <Text color={spec.kind === 'behavior' ? O.amber : O.dim}>  {spec.kind === 'behavior' ? '! changes what agents may do · ' : ''}{spec.help}</Text>
     </Box>
   )
 }
@@ -156,8 +158,8 @@ export function OrbitSettings({ el, s, act, width }: { el: El; s: Snapshot; act:
         <Text> </Text>
         {Button && act.isFocused ? (
           <Box columnGap={2}>
-            <Button key="reset-yes" hotkey="y" label="[y] yes, reset all" plain onPress={() => act.reset('all')} />
-            <Button key="reset-no" hotkey="n" label="[n] keep my settings" plain onPress={() => act.section(null)} />
+            <Button key="reset-yes" hotkey="y" label="yes, reset all" plain onPress={() => act.reset('all')} />
+            <Button key="reset-no" hotkey="n" label="keep my settings" plain onPress={() => act.section(null)} />
           </Box>
         ) : (
           <Text color={O.dim}>focus the pane (ctrl+x tab) to confirm, or /nexus settings reset all confirm</Text>
@@ -175,7 +177,7 @@ export function OrbitSettings({ el, s, act, width }: { el: El; s: Snapshot; act:
         {SECTIONS.map((sec, i) => (
           <Box key={`sec-${sec.id}`} flexDirection="column" marginTop={1}>
             {Button && act.isFocused ? (
-              <Button key={`open-${sec.id}`} hotkey={String(i + 1)} label={`[${i + 1}] ${sec.title}`} plain onPress={() => act.section(sec.id)} />
+              <Button key={`open-${sec.id}`} hotkey={String(i + 1)} label={sec.title} plain onPress={() => act.section(sec.id)} />
             ) : (
               <Text color={O.opus} bold>{i + 1}  {sec.title}</Text>
             )}
@@ -185,8 +187,8 @@ export function OrbitSettings({ el, s, act, width }: { el: El; s: Snapshot; act:
         ))}
         <Text> </Text>
         <Box columnGap={2}>
-          <Back el={el} act={act} label="[x] close settings" />
-          {Button && act.isFocused && <Button key="reset-all" hotkey="r" label="[r] reset everything…" plain dimColor onPress={() => act.section('reset-all')} />}
+          <Back el={el} act={act} label="close settings" />
+          {Button && act.isFocused && <Button key="reset-all" hotkey="r" label="reset everything…" plain dimColor onPress={() => act.section('reset-all')} />}
         </Box>
       </Box>
     )
@@ -194,7 +196,10 @@ export function OrbitSettings({ el, s, act, width }: { el: El; s: Snapshot; act:
 
   // One section: only its own settings, advanced options never on the main page.
   const t = s.prefs.telemetry
-  const specs = SETTINGS.filter(x => x.section === section.id).filter(x => !(x.key.startsWith('telemetry.') && x.key !== 'telemetry.preset' && t.preset !== 'custom'))
+  // Progressive disclosure: single numbers appear only when they matter (Custom, or Cache Guard on).
+  const specs = SETTINGS.filter(x => x.section === section.id)
+    .filter(x => !(x.key.startsWith('telemetry.') && x.key !== 'telemetry.preset' && t.preset !== 'custom'))
+    .filter(x => !(x.key.startsWith('cacheGuard.') && x.key !== 'cacheGuard.enabled' && !s.prefs.cacheGuard.enabled))
   return (
     <Box flexDirection="column" width={width}>
       <Rows el={el} lines={[[seg('Settings', O.dim), seg(' › ', O.faint), seg(section.title, O.fg, true)], rule]} id="sp" />
@@ -206,14 +211,16 @@ export function OrbitSettings({ el, s, act, width }: { el: El; s: Snapshot; act:
         </Box>
       ))}
       {section.id === 'usage' && t.preset !== 'custom' && <Text color={O.dim}>Choose “custom” above to pick each number yourself.</Text>}
+      {section.id === 'advanced' && !s.prefs.cacheGuard.enabled && <Text color={O.dim}>Turn Cache Guard on to set its limits.</Text>}
+      {section.id === 'agents' && s.prefs.council.activation === 'on' && <Text color={O.amber}>{ON_WARNING}</Text>}
       <Facts el={el} s={s} id={section.id} />
       <Text> </Text>
       <Box columnGap={2}>
         {Button && act.isFocused ? (
           <>
-            <Button key="sec-back" hotkey="b" label="[b] back" plain onPress={() => act.section(null)} />
-            <Button key="sec-reset" hotkey="r" label={`[r] reset ${section.title}`} plain dimColor onPress={() => act.reset(section.id)} />
-            <Button key="sec-exit" hotkey="x" label="[x] exit" plain dimColor onPress={() => act.back()} />
+            <Button key="sec-back" hotkey="b" label="back" plain onPress={() => act.section(null)} />
+            <Button key="sec-reset" hotkey="r" label={`reset ${section.title}`} plain dimColor onPress={() => act.reset(section.id)} />
+            <Button key="sec-exit" hotkey="x" label="exit" plain dimColor onPress={() => act.back()} />
           </>
         ) : (
           <Text color={O.dim}>focus the pane (ctrl+x tab) to change these · /nexus settings {section.id}</Text>
@@ -248,7 +255,7 @@ function ActivityView({ el, s, act, width }: { el: El; s: Snapshot; act: Actions
 }
 
 // ---- the pane ---------------------------------------------------------------------------------
-export function PaneOrbit({ el, s, width, act }: { el: El; s: Snapshot; width: number; act: Actions }) {
+export function PaneOrbit({ el, s, width, act, rows }: { el: El; s: Snapshot; width: number; act: Actions; rows?: number }) {
   const { Box } = el
   const head = <Rows el={el} lines={header(s, width).map(l => fitLine(l, width))} id="oh" />
   if (s.view.kind === 'settings') {
@@ -278,7 +285,7 @@ export function PaneOrbit({ el, s, width, act }: { el: El; s: Snapshot; width: n
   // The header is part of orbitLines: draw the rest of the dashboard from it.
   return (
     <Box flexDirection="column" width={width}>
-      <Rows el={el} lines={orbitLines(s, width)} id="od" />
+      <Rows el={el} lines={orbitLines(s, width, rows === undefined ? undefined : Math.max(10, rows - 2))} id="od" />
       <Keys el={el} s={s} act={act} width={width} />
     </Box>
   )

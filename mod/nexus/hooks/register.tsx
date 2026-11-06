@@ -66,9 +66,10 @@ import {
   reviewersFor,
   route,
   verdictText,
+  within,
 } from './council'
 import type { PathCtx, Snapshot as ReviewSnapshot } from './council'
-import { ALLOWED_TOOLS as TEST_TOOLS, LOOSENING, cappedTimeout, judgeCommand, parseReport, reportLine } from './testrunner'
+import { ALLOWED_TOOLS as TEST_TOOLS, BASH_FIELDS, LOOSENING, TOOL_FIELDS, cappedTimeout, globReachesOutside, judgeCommand, parseReport, reportLine } from './testrunner'
 import { AboutView, HelpView, NEXUS_VERSION, OutputView, aboutText, helpText } from './docs'
 import { DEFAULT_PREFS, PANE_MAX, SECTIONS, SETTINGS, defaultValue, exportPrefs, migrate, prefValue, resetAll, resetSection, resolveLayout, setPref } from './prefs'
 import type { SectionId } from './prefs'
@@ -186,8 +187,8 @@ export const LOG_KEEP = 50
 
 const PANE = 'nexus'
 const PANE_OPEN = { id: PANE, title: 'NEXUS', columns: 92, backgroundColor: C.bg }
-/** Orbit redraws the black hole about four times a second while something runs; Classic's effects use ten. */
-const ORBIT_FRAME_MS = 250
+/** Orbit redraws every 400 ms while something runs: the black hole has 60 frames in 24 s, so a faster timer would only repeat a frame. Classic's effects use ten a second. */
+const ORBIT_FRAME_MS = 400
 /** 10 frames a second while an effect plays; 1 under reduced motion (counters only). */
 const FRAME_MS = 100
 const STILL_MS = 1000
@@ -203,6 +204,10 @@ let isReduced = false
 let isMotionOff = false
 /** The Orbit theme is chosen: slower frames, since its motion is slow. Mirrors prefs.theme. */
 let orbitTheme = false
+/** The terminal asked for no colour (NO_COLOR or TERM=dumb): the black hole draws in shades. */
+let isMono = false
+/** The NEXUS pane is open. While it is closed nothing is drawn, so no frame timer runs. */
+let isPaneOpen = true
 let cwd = ''
 let home = ''
 let sessionId = ''
@@ -238,7 +243,7 @@ async function addFx($: EngineInterface, kind: Fx['kind'], ref: string | null, m
 
 // One timer, only while something on screen changes with time; none when idle.
 function animate($: EngineInterface) {
-  if (isMotionOff) {
+  if (isMotionOff || !isPaneOpen) {
     timer?.cancel()
     timer = null
     return
@@ -280,7 +285,7 @@ async function snapshot($: EngineInterface): Promise<Snapshot> {
     read($, council),
     $.clock.now(),
   ])
-  return { lead: l, advisor: a, agents: list, jev: j, log: rows, mode: m, fx: f, reduceMotion: r, tick: t, view: v, prefs: pr, usage: us, models: md, guard: gd, council: cn, keptWidth, now }
+  return { lead: l, advisor: a, agents: list, jev: j, log: rows, mode: m, fx: f, reduceMotion: r, tick: t, view: v, prefs: pr, usage: us, models: md, guard: gd, council: cn, isMono, keptWidth, now }
 }
 
 /** Re-reads Claude Code's own usage figures: free (no breakdown asked), no request is made. */
@@ -1272,6 +1277,43 @@ const reviewerEnds = new Map<string, ReviewerEnd>()
 /** Agents running as the Test agent (`nexus-test`): their Bash calls are checked. Bounded; the agents list is a second source. */
 const testAgents = new Set<string>()
 
+/**
+ * Why `arg` may not be used (it leads outside the repository, or where it leads cannot be told), or null. The path is
+ * resolved through symlinks; one that does not exist yet is judged by its nearest existing parent, all the way up, and
+ * if no part of it can be found the answer is no.
+ */
+async function pathProblemAt($: EngineInterface, arg: string, base: string, realRoot: string): Promise<string | null> {
+  // The file tools expand a leading `~` to the home directory; a path walk would read it as a folder called `~`.
+  if (arg.startsWith('~')) return `${arg} is outside the repository (the home directory)`
+  let dir = normalizePath(arg, base)
+  // A path has at most a few hundred segments (a command is capped at 400 characters): the walk always ends.
+  for (let hops = 0; hops < 512; hops++) {
+    const real = await realOf($, dir)
+    if (real === UNRESOLVED) return `NEXUS could not tell where ${arg} leads`
+    if (real !== null) {
+      if (!within(real, realRoot)) return `${arg} leads outside the repository (through a symlink or its own location)`
+      // Where it really lands counts too: a link inside the repository to a secret file is still that file.
+      return isSecretPath(real) ? `${arg} leads to a secret file` : null
+    }
+    if (dir === '/') break
+    dir = dir.slice(0, Math.max(1, dir.lastIndexOf('/')))
+  }
+  return `NEXUS could not find any part of ${arg}, so it cannot tell where it leads`
+}
+
+/** The first problem with any path in `paths`, or null. The repository is the session's own, not whatever review is open. */
+async function pathsEscape($: EngineInterface, paths: string[]): Promise<string | null> {
+  const base = await liveCwd($)
+  const root = (await repoTop($, base)) ?? base
+  const realRoot = await cachedRealRoot($, root)
+  if (realRoot === UNRESOLVED) return 'NEXUS could not tell where the repository is, so no path can be checked'
+  for (const arg of paths) {
+    const why = await pathProblemAt($, arg, base, realRoot)
+    if (why) return why
+  }
+  return null
+}
+
 /** What the Test agent's call may do: a refusal with the reason, or the call to run (with our limits). */
 async function testGate($: EngineInterface, e: Record<string, unknown> & { tool: unknown; agentId?: string }): Promise<{ deny: string } | { input: never }> {
   const name = String(e.tool)
@@ -1286,12 +1328,30 @@ async function testGate($: EngineInterface, e: Record<string, unknown> & { tool:
     if ((await read($, prefs)).testRunner === 'off') return refuse('running tests is switched off (Settings → Agents → Run tests)')
     const verdict = judgeCommand(e.command)
     if (!verdict.ok) return refuse(verdict.why)
-    // The call the engine sees: the agent's own fields, minus anything that loosens a sandbox, with our limits.
-    const kept = Object.fromEntries(Object.entries(e).filter(([k]) => !LOOSENING.test(k)))
+    // Every path argument, with symlinks followed, must stay inside the repository the session is in.
+    const escape = await pathsEscape($, verdict.paths)
+    if (escape) return refuse(escape)
+    // The call the engine sees: only the fields a test run needs, with our limits. Anything else the agent
+    // sent (a working directory, an environment, a claim of approval) is not passed on.
+    const kept = Object.fromEntries(Object.entries(e).filter(([k]) => BASH_FIELDS.has(k) && !LOOSENING.test(k)))
     return { input: { ...kept, timeout: cappedTimeout(e.timeout), run_in_background: false } as never }
   }
-  if (name === 'Read' && typeof e.file_path === 'string' && isSecretPath(e.file_path)) return refuse(`${e.file_path} looks like a secret file`)
-  return { input: (name === 'Grep' ? { ...e, glob: guardGrepGlob(e.glob) } : e) as never }
+  // Read, Glob and Grep stay inside the repository too, by the same resolution as a Bash argument.
+  if (name === 'Read' && typeof e.file_path === 'string') {
+    if (isSecretPath(e.file_path)) return refuse(`${e.file_path} looks like a secret file`)
+    const out = await pathsEscape($, [e.file_path])
+    if (out) return refuse(out)
+  }
+  if ((name === 'Glob' || name === 'Grep') && typeof e.path === 'string') {
+    const out = await pathsEscape($, [e.path])
+    if (out) return refuse(out)
+  }
+  // A Glob pattern can name a place outside the repository on its own.
+  if (name === 'Glob' && typeof e.pattern === 'string' && globReachesOutside(e.pattern)) return refuse(`the pattern ${e.pattern.slice(0, 60)} reaches outside the repository`)
+  // Each read tool passes on only the fields it documents, as Bash does.
+  const allowed = TOOL_FIELDS[name]
+  const kept = allowed ? Object.fromEntries(Object.entries(e).filter(([k]) => allowed.has(k) && !LOOSENING.test(k))) : e
+  return { input: (name === 'Grep' ? { ...kept, glob: guardGrepGlob(e.glob) } : kept) as never }
 }
 
 /** Whether an agent runs as the Test agent: remembered at spawn, else read from the agents list. */
@@ -1346,13 +1406,27 @@ async function repoRoot($: EngineInterface, from?: string): Promise<string> {
   return (await repoTop($, dir)) ?? dir
 }
 
+/** Directories that were not in a repository, and when that was seen: not asked again for a short while. */
+const notRepos = new Map<string, number>()
+const NOT_REPO_MS = 30_000
+
 /** The top level of the repository `dir` is in, or null when it is in none (git says so, or cannot be run). */
 async function repoTop($: EngineInterface, dir: string): Promise<string | null> {
   const known = topLevels.get(dir)
   if (known) return known
+  const seen = notRepos.get(dir)
+  if (seen !== undefined && (await $.clock.now()) - seen < NOT_REPO_MS) return null
   const r = await git($, ['git', 'rev-parse', '--show-toplevel'], dir, 5_000).catch(() => null)
   const top = r?.exitCode === 0 ? r.stdout.trim() : ''
-  if (!top) return null
+  if (!top) {
+    // Only git's own answer is remembered (it exits 128 for "not a repository", in any language). A timeout or a
+    // failure to run is not that: it is asked again.
+    if (r && r.exitCode === 128) {
+      notRepos.set(dir, await $.clock.now())
+      capMap(notRepos, 20)
+    }
+    return null
+  }
   topLevels.set(dir, top)
   capMap(topLevels, 20)
   return top
@@ -1431,6 +1505,18 @@ async function lineCounts($: EngineInterface, files: string[], dir: string): Pro
 }
 
 const realRoots = new Map<string, string>()
+/** Where a repository root really lands (symlinks followed), cached; a root that could not be resolved is never cached, so one passing stat error refuses one call, not every later one. */
+async function cachedRealRoot($: EngineInterface, root: string): Promise<string> {
+  let real = realRoots.get(root)
+  if (real === undefined) {
+    real = (await realOf($, root)) ?? root
+    if (real !== UNRESOLVED) {
+      realRoots.set(root, real)
+      capMap(realRoots, 20)
+    }
+  }
+  return real
+}
 /** Where a path really lands. null: it does not exist (yet). UNRESOLVED: it could not be told, which mayCall refuses. */
 const realOf = async ($: EngineInterface, path: string): Promise<string | null> => {
   try {
@@ -1448,15 +1534,7 @@ async function reviewerPathCtx($: EngineInterface, input: Record<string, unknown
   const base = fixedBase ?? (await liveCwd($))
   const root = fixedRoot ?? (await reviewRoot($, base))
   if (!root) return undefined
-  let real = realRoots.get(root)
-  if (real === undefined) {
-    real = (await realOf($, root)) ?? root
-    // A root that could not be resolved refuses this call only: cached, one passing stat error would refuse every later read.
-    if (real !== UNRESOLVED) {
-      realRoots.set(root, real)
-      capMap(realRoots, 20)
-    }
-  }
+  const real = await cachedRealRoot($, root)
   const path = ['file_path', 'path'].map(k => input[k]).find(v => typeof v === 'string') as string | undefined
   if (path) return { base, roots: [root], realRoots: [real], realPath: await realOf($, normalizePath(path, base)) }
   // No path: the tool searches the session's directory, which may be spelled through a symlink.
@@ -1928,7 +2006,7 @@ export const register: Register = (on, options) => {
     if (!call) return next(e)
     if ('deny' in call) return { deny: call.deny }
     return next(call.input)
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (e.agentId && testAgents.has(e.agentId) ? { deny: 'NEXUS could not pass this Test agent call on safely, so it is refused' } : next(e)))
 
 
 
@@ -1944,6 +2022,7 @@ export const register: Register = (on, options) => {
       await update($, council, x => ({ ...x, checkpoint: x.checkpoint && { ...x.checkpoint, status: 'partial' as const, reason: 'NEXUS was reloaded during this review, so it could not be merged', endedAt: now } }))
     }
     home = (await $.env.get('HOME')) ?? ''
+    isMono = Boolean(await $.env.get('NO_COLOR')) || (await $.env.get('TERM')) === 'dumb'
     sessionId = await $.session.id()
     jevKey = await loadJevKey($)
     const [sessionAdvisor, sessionModel] = await Promise.all([setting($, 'advisorModel'), $.session.model()])
@@ -1961,6 +2040,8 @@ export const register: Register = (on, options) => {
       await update($, jev, x => ({ ...x, status: 'off' as const, reason: 'no key: TYPESAFE_API_KEY or Keychain nexus-typesafe' }))
     }
     await loadPrefs($)
+    // Open until the engine says otherwise (a minimal layout never opens it; an unplaced open is handled in the ui.open hook).
+    isPaneOpen = (await read($, prefs)).layout !== 'minimal'
     keptWidth = await keptDockColumns($)
     await syncMotion($)
     // The plan only where Claude Code itself answers it: never guessed from a model.
@@ -2197,6 +2278,9 @@ export const register: Register = (on, options) => {
 
   on('session.end', async ($, e, next) => {
     cancelGuard()
+    // Nothing animates after the session ends.
+    timer?.cancel()
+    timer = null
     await update($, guard, (g): Guard => (g.status === 'OFF' ? g : { ...g, status: 'OFF', reason: 'session ended', nextAt: null }))
     return next(e)
   }).catch(($, e, next) => next(e))
@@ -2369,6 +2453,39 @@ export const register: Register = (on, options) => {
     return ran
   }).catch(($, e, next) => next(e)) // an observer never holds up the engine
 
+  // ---- the pane's life: no frame timer runs while nothing is drawn ----------
+  on('ui.open', async ($, e, next) => {
+    const out = await next(e)
+    if (e.id === PANE) {
+      // Only a pane the engine actually seated is drawn: an unplaced or denied open leaves no timer running.
+      // (A result may come wrapped as `{ value }` or bare, depending on who answered below; anything odd reads as "not placed".)
+      let isSeated = false
+      try {
+        const bare = out && typeof out === 'object' ? (out as Record<string, unknown>) : {}
+        const placed = (bare.value && typeof bare.value === 'object' ? bare.value : bare) as { isPlaced?: unknown; deny?: unknown }
+        isSeated = !bare.deny && !placed.deny && placed.isPlaced !== false
+      } catch {
+        isSeated = false
+      }
+      isPaneOpen = isSeated
+      if (isSeated) animate($)
+      else {
+        timer?.cancel()
+        timer = null
+      }
+    }
+    return out
+  }).catch(($, e, next) => next(e))
+  on('ui.close', async ($, e, next) => {
+    const out = await next(e)
+    if (e.id === PANE) {
+      isPaneOpen = false
+      timer?.cancel()
+      timer = null
+    }
+    return out
+  }).catch(($, e, next) => next(e))
+
   // ---- drawing (terminal only: other surfaces keep their own look) --------
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const els = $.ui.resolve(e)
@@ -2390,7 +2507,7 @@ export const register: Register = (on, options) => {
     }
     const layout = e.surface === 'terminal' ? resolveLayout(s.prefs, width, e.props.placement) : 'list'
     if (layout === 'list') return <PaneList el={el} s={s} />
-    if (s.prefs.theme === 'orbit') return <PaneOrbit el={el} s={s} width={width} act={act} />
+    if (s.prefs.theme === 'orbit') return <PaneOrbit el={el} s={s} width={width} act={act} rows={e.props.scroll?.bodyRows} />
     if (layout === 'full') return <PaneFull el={el} s={s} width={width} act={act} />
     return <PaneCompact el={el} s={s} width={width} act={act} />
   })

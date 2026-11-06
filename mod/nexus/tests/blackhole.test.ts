@@ -1,142 +1,281 @@
 import { expect, test } from 'claude-code/testing'
 
-import { CYCLE_MS, FRAMES, bhText, blackHole, drawBlackHole, frames, horizonRadius } from '../hooks/blackhole'
+import { CYCLE_MS, DIMENSIONS, FRAMES, PALETTE, bhText, blackHole, drawBlackHole, frames, horizonPixels, litKinds, litPixels, sizeFor } from '../hooks/blackhole'
+import type { BhSize, BhSprite } from '../hooks/blackhole'
 
-const SIZES: [number, number][] = [[40, 8], [56, 11], [66, 12], [76, 14], [24, 6]]
-const dots = (ch: string) => (ch === ' ' ? 0 : [...Array(8).keys()].filter(b => ((ch.charCodeAt(0) - 0x2800) >> b) & 1).length)
-/** Cells that count as inside the shadow: all eight dots well well within the horizon (r < 0.5 R; the disk's near edge crosses the lower part of the horizon). */
-function shadowCells(w: number, rows: number): [number, number][] {
-  const R = horizonRadius(w, rows)
-  const W = w * 2
-  const H = rows * 4
-  const out: [number, number][] = []
-  for (let row = 0; row < rows; row++)
-    for (let col = 0; col < w; col++) {
-      let inside = true
-      for (const dx of [0, 1]) for (const dy of [0, 1, 2, 3]) inside &&= Math.hypot((col * 2 + dx - (W - 1) / 2) / R, (row * 4 + dy - (H - 1) / 2) / R) < 0.5
-      if (inside) out.push([col, row])
+const SIZES: BhSize[] = ['small', 'medium', 'large']
+
+/** Each pixel's palette step (1..8) or null for dark, row-major, from a drawn sprite. */
+function levels(sprite: BhSprite): (number | null)[] {
+  const W = sprite[0]!.reduce((n, r) => n + r.text.length, 0)
+  const out: (number | null)[] = new Array(W * sprite.length * 2).fill(null)
+  const step = (hex: string | undefined) => (hex ? PALETTE.indexOf(hex as (typeof PALETTE)[number]) + 1 : null)
+  sprite.forEach((runs, r) => {
+    let x = 0
+    for (const run of runs) {
+      for (const ch of run.text) {
+        if (ch === '▀') {
+          out[r * 2 * W + x] = step(run.fg)
+          out[(r * 2 + 1) * W + x] = step(run.bg)
+        } else if (ch === '▄') out[(r * 2 + 1) * W + x] = step(run.fg)
+        x++
+      }
     }
+  })
   return out
 }
+const lit = (sprite: BhSprite) => levels(sprite).map(v => v !== null)
 
-test('the event horizon is dark in every frame, at every size', () => {
-  for (const [w, h] of SIZES) {
-    const cells = shadowCells(w, h)
-    if (w >= 40) expect(cells.length).toBeGreaterThan(2)
-    for (const f of [0, 7, 15, 30, 45, 59]) {
-      const text = bhText(drawBlackHole(w, h, f / FRAMES))
-      for (const [c, r] of cells) expect(text[r]![c]).toBe(' ')
-    }
-    const still = bhText(drawBlackHole(w, h, null))
-    for (const [c, r] of shadowCells(w, h)) expect(still[r]![c]).toBe(' ')
-  }
-})
-
-test('every frame is exactly w columns by h rows, with only braille dots and spaces', () => {
-  for (const [w, h] of SIZES) {
-    const text = bhText(blackHole(5000, w, h))
-    expect(text.length).toBe(h)
+test('every composition is exactly its size, drawn only with half blocks and spaces', () => {
+  for (const size of SIZES) {
+    const text = bhText(drawBlackHole(size, 0.3))
+    expect(text.length).toBe(DIMENSIONS[size].rows)
     for (const row of text) {
-      expect([...row].length).toBe(w)
-      expect(row).toMatch(/^[ ⠀-⣿]*$/)
+      expect([...row].length).toBe(DIMENSIONS[size].cols)
+      expect(row).toMatch(/^[ ▀▄]*$/)
     }
   }
+  expect(DIMENSIONS.small.cols).toBeLessThan(DIMENSIONS.medium.cols)
+  expect(DIMENSIONS.medium.cols).toBeLessThan(DIMENSIONS.large.cols)
 })
 
-test('it looks like the reference: a bright disk across the lower half, dark above it, arcs over and under', () => {
-  const text = bhText(drawBlackHole(66, 12, 0.25))
-  const weight = text.map(r => [...r].reduce((n, ch) => n + dots(ch), 0))
-  const brightest = weight.indexOf(Math.max(...weight))
-  // The disk is the densest row, in the lower half, and the rows above the shadow's top hold arcs.
-  expect(brightest).toBeGreaterThanOrEqual(6)
-  expect(brightest).toBeLessThanOrEqual(9)
-  expect(weight[0]! + weight[1]! + weight[2]!).toBeGreaterThan(10)
-  expect(weight[10]! + weight[11]!).toBeGreaterThan(10)
-  // The disk reaches far to both sides of the shadow.
-  const row = [...text[brightest]!]
-  expect(row.findIndex(c => c !== ' ')).toBeLessThan(12)
-  expect(row.length - 1 - row.findLastIndex(c => c !== ' ')).toBeLessThan(12)
-  // Mostly black.
-  const lit = text.join('').replace(/ /g, '').length
-  expect(lit / (66 * 12)).toBeLessThan(0.5)
+test('which composition a panel gets: the largest that fits, none when nothing does', () => {
+  expect(sizeFor(100, 20)).toBe('large')
+  expect(sizeFor(64, 14)).toBe('large')
+  expect(sizeFor(63, 14)).toBe('medium')
+  expect(sizeFor(64, 13)).toBe('medium')
+  expect(sizeFor(44, 10)).toBe('medium')
+  expect(sizeFor(43, 10)).toBe('small')
+  expect(sizeFor(30, 7)).toBe('small')
+  expect(sizeFor(29, 7)).toBeNull()
+  expect(sizeFor(80, 6)).toBeNull()
 })
 
-test('the loop is seamless: the end of the cycle is the start of the next', () => {
-  for (const [w, h] of SIZES.slice(0, 3)) expect(bhText(drawBlackHole(w, h, 1))).toEqual(bhText(drawBlackHole(w, h, 0)))
-  const cycle = CYCLE_MS.slow
-  expect(bhText(blackHole(cycle * 3, 66, 12))).toEqual(bhText(blackHole(0, 66, 12)))
-  expect(bhText(blackHole(cycle * 3 + 1234, 66, 12))).toEqual(bhText(blackHole(1234, 66, 12)))
+test('the event horizon is dark in every frame, in colour and in shades', () => {
+  for (const size of SIZES) {
+    const dark = new Set(horizonPixels(size))
+    expect(dark.size).toBeGreaterThan(20)
+    const { cols } = DIMENSIONS[size]
+    for (const isMono of [false, true]) {
+      for (const f of [0, 9, 21, 30, 44, 59]) {
+        const lv = levels(drawBlackHole(size, f / FRAMES, isMono))
+        if (isMono) continue
+        lv.forEach((v, i) => {
+          if (v !== null) expect(dark.has(`${i % cols},${Math.floor(i / cols)}`)).toBe(false)
+        })
+      }
+    }
+    // Dark is no colour at all, not a dark colour.
+    for (const run of drawBlackHole(size, 0.4).flat()) if (run.text.trim() === '') expect([run.fg, run.bg]).toEqual([undefined, undefined])
+  }
 })
 
-test('slow, not flashing: neighbouring frames differ in a few cells, never most of them', () => {
-  for (const [w, h] of [[56, 11], [76, 14]] as [number, number][]) {
-    const list = frames(w, h).map(bhText)
+test('the dim arc inside the horizon is the only thing lit there, and it is never bright', () => {
+  for (const size of ['medium', 'large'] as const) {
+    const kinds = litKinds(size)
+    const arc = Object.entries(kinds).filter(([, k]) => k === 'arc').map(([key]) => key)
+    expect(arc.length).toBeGreaterThan(6)
+    const { cols } = DIMENSIONS[size]
+    for (const f of [0, 15, 30, 45]) {
+      const lv = levels(drawBlackHole(size, f / FRAMES))
+      for (const key of arc) {
+        const [x, y] = key.split(',').map(Number)
+        expect(lv[y! * cols + x!]).toBeLessThanOrEqual(3)
+      }
+    }
+  }
+  expect(Object.values(litKinds('small')).includes('arc')).toBe(false)
+})
+
+test('the silhouette never changes: the same pixels are lit in every frame', () => {
+  for (const size of SIZES) {
+    const base = lit(drawBlackHole(size, null))
+    expect(base.filter(Boolean).length).toBe(litPixels(size).length)
+    for (const f of [0, 7, 19, 33, 47, 59]) expect(lit(drawBlackHole(size, f / FRAMES))).toEqual(base)
+  }
+})
+
+test('only brightness moves, and never by more than one palette step from the resting picture', () => {
+  for (const size of SIZES) {
+    const rest = levels(drawBlackHole(size, null))
+    let tooFar = 0
+    let dark = 0
+    for (let f = 0; f < FRAMES; f += 3) {
+      levels(drawBlackHole(size, f / FRAMES)).forEach((v, i) => {
+        if (v === null) return
+        if (Math.abs(v - rest[i]!) > 1) tooFar++
+        if (v < 1) dark++
+      })
+    }
+    expect(tooFar).toBe(0)
+    expect(dark).toBe(0)
+  }
+})
+
+test('no flashing: neighbouring frames differ by at most one step, in a minority of pixels', () => {
+  for (const size of SIZES) {
+    const list = frames(size).map(levels)
     let worst = 0
-    let total = 0
-    list.forEach((f, i) => {
-      const g = list[(i + 1) % list.length]!
-      let diff = 0
-      f.forEach((row, r) => [...row].forEach((ch, c) => ch !== g[r]![c] && diff++))
-      worst = Math.max(worst, diff / (w * h))
-      total += diff
+    let jumps = 0
+    list.forEach((a, i) => {
+      const b = list[(i + 1) % list.length]!
+      let changed = 0
+      let litCount = 0
+      a.forEach((v, k) => {
+        if (v === null) return
+        litCount++
+        const d = Math.abs(v - b[k]!)
+        if (d > 1) jumps++
+        if (d) changed++
+      })
+      worst = Math.max(worst, changed / litCount)
     })
-    expect(worst).toBeLessThan(0.14)
-    // ...and it does move: the cycle is not a still picture.
-    expect(total).toBeGreaterThan(0)
-    expect(new Set(list.map(f => f.join('\n'))).size).toBeGreaterThan(FRAMES / 2)
+    expect(jumps).toBe(0)
+    expect(worst).toBeLessThan(0.3)
+    // ...and it does move: not a still picture (distinct frames, compared cheaply by their colour runs).
+    const keys = new Set(frames(size).map(f => f.map(r => r.map(x => `${x.fg ?? ''}${x.bg ?? ''}`).join('')).join('|')))
+    expect(keys.size).toBeGreaterThan(FRAMES / 2)
   }
 })
 
-test('the horizon, ring and disk never move; only the dots slide', () => {
-  // The shadow stays black at every phase (above), and the disk's densest row is the same row throughout.
-  const row = (f: number) => {
-    const t = bhText(drawBlackHole(66, 12, f / FRAMES))
-    const w = t.map(r => [...r].reduce((n, ch) => n + dots(ch), 0))
-    return w.indexOf(Math.max(...w))
+test('the loop is seamless: the end of a cycle is the start of the next', () => {
+  for (const size of SIZES) expect(drawBlackHole(size, 1)).toEqual(drawBlackHole(size, 0))
+  const cycle = CYCLE_MS.slow
+  expect(blackHole(cycle * 3 + 1234, 'medium')).toEqual(blackHole(1234, 'medium'))
+  expect(blackHole(cycle * 7, 'large', 'veryslow')).toEqual(blackHole(cycle * 7 % CYCLE_MS.veryslow, 'large', 'veryslow'))
+})
+
+test('speed and stillness: 24 s, 36 s on very slow; null, NaN and reduced motion are the one still picture', () => {
+  expect(CYCLE_MS.slow).toBe(24_000)
+  expect(CYCLE_MS.veryslow).toBe(36_000)
+  expect(blackHole(null, 'medium')).toEqual(drawBlackHole('medium', null))
+  expect(blackHole(Number.NaN, 'medium')).toEqual(drawBlackHole('medium', null))
+  expect(blackHole(0, 'medium', 'slow')).toEqual(blackHole(0, 'medium', 'veryslow'))
+  // Half a slow cycle in, a very slow cycle is only a third of the way round.
+  expect(blackHole(CYCLE_MS.slow / 2, 'medium', 'slow')).not.toEqual(blackHole(CYCLE_MS.slow / 2, 'medium', 'veryslow'))
+})
+
+test('the palette is eight steps of dark red to amber, each an exact xterm-256 colour', () => {
+  expect(PALETTE.length).toBe(8)
+  const cube = [0, 95, 135, 175, 215, 255]
+  PALETTE.forEach(hex => {
+    const [r, g, b] = [1, 3, 5].map(i => Number.parseInt(hex.slice(i, i + 2), 16))
+    for (const c of [r!, g!, b!]) expect(cube).toContain(c)
+  })
+  // Warm and brightening: red never falls, green never falls, from step to step.
+  for (let i = 1; i < PALETTE.length; i++) {
+    const a = PALETTE[i - 1]!
+    const b = PALETTE[i]!
+    expect(Number.parseInt(b.slice(1, 3), 16)).toBeGreaterThanOrEqual(Number.parseInt(a.slice(1, 3), 16))
+    expect(Number.parseInt(b.slice(3, 5), 16)).toBeGreaterThanOrEqual(Number.parseInt(a.slice(3, 5), 16))
   }
-  expect(new Set([0, 10, 20, 30, 40, 50].map(row)).size).toBe(1)
 })
 
-test('speed: very slow takes longer to change than slow; reduced motion is one fixed frame', () => {
-  expect(CYCLE_MS.slow).toBeGreaterThanOrEqual(20_000)
-  expect(CYCLE_MS.veryslow).toBeLessThanOrEqual(40_000)
-  expect(CYCLE_MS.veryslow).toBeGreaterThan(CYCLE_MS.slow)
-  const at = (ms: number, sp: 'slow' | 'veryslow') => bhText(blackHole(ms, 66, 12, sp)).join('\n')
-  expect(at(0, 'slow')).toBe(at(0, 'veryslow'))
-  expect(at(CYCLE_MS.slow / 2, 'slow')).not.toBe(at(0, 'slow'))
-  // Half a slow cycle in, a very slow cycle has not reached its own half.
-  expect(at(CYCLE_MS.slow / 2, 'veryslow')).not.toBe(at(CYCLE_MS.slow / 2, 'slow'))
-  expect(blackHole(null, 66, 12)).toEqual(blackHole(null, 66, 12))
-  expect(blackHole(Number.NaN, 66, 12)).toEqual(blackHole(null, 66, 12))
+test('it is thin pixel art, not a bar: no tall solid column, few of the very brightest pixels', () => {
+  for (const size of ['medium', 'large'] as const) {
+    const { cols, rows } = DIMENSIONS[size]
+    const H = rows * 2
+    const lv = levels(drawBlackHole(size, 0.25))
+    const total = lv.filter(v => v !== null).length
+    // The brightest steps are rare: hot material is a few pixels, not a stripe.
+    expect(lv.filter(v => v !== null && v >= 7).length / total).toBeLessThan(0.08)
+    // No column is lit top to bottom, and the disk's own band is thin: no run of lit pixels is more than 60% of the height.
+    for (let x = 0; x < cols; x++) {
+      let run = 0
+      let longest = 0
+      for (let y = 0; y < H; y++) {
+        run = lv[y * cols + x] !== null ? run + 1 : 0
+        longest = Math.max(longest, run)
+      }
+      expect(longest).toBeLessThan(H * 0.6)
+    }
+    // Wide, like the reference: lit from near the left edge to near the right edge, and mostly black.
+    const litCols = Array.from({ length: cols }, (_, x) => lv.some((_, k) => k % cols === x && lv[k] !== null))
+    expect(litCols.indexOf(true)).toBeLessThan(cols * 0.12)
+    expect(litCols.lastIndexOf(true)).toBeGreaterThan(cols * 0.88)
+    expect(total / lv.length).toBeLessThan(0.4)
+  }
 })
 
-test('frames are computed once per size and reused (no redraw cost per tick)', () => {
-  expect(frames(66, 12)).toBe(frames(66, 12))
-  expect(blackHole(2000, 66, 12)).toBe(frames(66, 12)[Math.floor((2000 / CYCLE_MS.slow) * FRAMES)])
+test('lopsided on purpose: the left of the disk runs hotter than the right, the dome is brighter than the bowl', () => {
+  for (const size of ['medium', 'large'] as const) {
+    const { cols, rows } = DIMENSIONS[size]
+    const lv = levels(drawBlackHole(size, null))
+    const mean = (pred: (x: number, y: number) => boolean) => {
+      const xs = lv.map((v, i) => [v, i % cols, Math.floor(i / cols)] as const).filter(([v, x, y]) => v !== null && pred(x, y))
+      return xs.reduce((n, [v]) => n + v!, 0) / Math.max(1, xs.length)
+    }
+    const mid = Math.floor(rows)
+    expect(mean((x, y) => x < cols * 0.42 && y > mid - 6 && y < mid + 4)).toBeGreaterThan(mean((x, y) => x > cols * 0.58 && y > mid - 6 && y < mid + 4))
+    expect(mean((_, y) => y < mid - 3)).toBeGreaterThan(mean((_, y) => y > mid + 5))
+  }
+})
+
+test('three compositions, tuned apart: the small one has no bowl, the large one more particles and texture', () => {
+  const count = (size: BhSize) => litPixels(size).length / (DIMENSIONS[size].cols * DIMENSIONS[size].rows * 2)
+  const bowlRows = (size: BhSize) => {
+    const lv = levels(drawBlackHole(size, null))
+    const { cols, rows } = DIMENSIONS[size]
+    // Lit pixels in the lowest fifth of the picture, away from the sides.
+    return lv.filter((v, i) => v !== null && Math.floor(i / cols) > rows * 2 * 0.78 && (i % cols) > cols * 0.3 && (i % cols) < cols * 0.7).length
+  }
+  expect(bowlRows('small')).toBe(0)
+  expect(bowlRows('medium')).toBeGreaterThan(3)
+  expect(bowlRows('large')).toBeGreaterThan(bowlRows('medium'))
+  // Not one picture scaled: the lit fraction differs between sizes.
+  expect(new Set(SIZES.map(s => count(s).toFixed(3))).size).toBe(3)
+})
+
+test('a few isolated particles sit apart from the rest, in the medium and large pictures', () => {
+  for (const [size, min] of [['medium', 3], ['large', 5]] as const) {
+    const { cols } = DIMENSIONS[size]
+    const lv = levels(drawBlackHole(size, null))
+    const H = lv.length / cols
+    let isolated = 0
+    lv.forEach((v, i) => {
+      if (v === null) return
+      const x = i % cols
+      const y = Math.floor(i / cols)
+      let near = 0
+      for (let j = -1; j <= 1; j++) for (let k = -1; k <= 1; k++) if ((j || k) && x + k >= 0 && x + k < cols && y + j >= 0 && y + j < H && lv[(y + j) * cols + x + k] !== null) near++
+      if (near === 0) isolated++
+    })
+    expect(isolated).toBeGreaterThanOrEqual(min)
+  }
+})
+
+test('without colour the shape is the same and the horizon is still empty', () => {
+  for (const size of SIZES) {
+    const colour = bhText(drawBlackHole(size, 0.2))
+    const mono = drawBlackHole(size, 0.2, true)
+    expect(bhText(mono).map(r => r.replace(/[░▒▓█]/g, '▀'))).toEqual(colour.map(r => r))
+    for (const run of mono.flat()) expect([run.fg, run.bg]).toEqual([undefined, undefined])
+    expect(bhText(mono).join('')).toMatch(/[░▒▓█]/)
+  }
+})
+
+test('frames are built once per size and the cache costs little', () => {
+  expect(frames('medium')).toBe(frames('medium'))
+  expect(blackHole(2000, 'medium')).toBe(frames('medium')[Math.floor((2000 / CYCLE_MS.slow) * FRAMES)])
   const t0 = performance.now()
-  for (let i = 0; i < 5000; i++) blackHole(i * 100, 66, 12)
-  expect(performance.now() - t0).toBeLessThan(500)
+  for (const s of SIZES) for (const m of [false, true]) frames(s, m)
+  expect(performance.now() - t0).toBeLessThan(800)
+  const t1 = performance.now()
+  for (let i = 0; i < 5000; i++) blackHole(i * 100, 'large')
+  expect(performance.now() - t1).toBeLessThan(400)
 })
 
-test('the whole cycle of a large picture is cheap to build', () => {
-  const t0 = performance.now()
-  frames(100, 16)
-  const ms = performance.now() - t0
-  expect(ms).toBeLessThan(1500)
-})
-
-test('without colour the shape still reads: dot density alone separates the disk from the sky', () => {
-  const text = bhText(drawBlackHole(66, 12, 0.25))
-  const density = (r: string) => [...r].reduce((n, ch) => n + dots(ch), 0)
-  const mid = Math.max(...text.map(density))
-  const sparse = text.filter(r => density(r) > 0 && density(r) < mid / 3).length
-  expect(mid).toBeGreaterThan(150)
-  expect(sparse).toBeGreaterThanOrEqual(4)
-})
-
-test('tiny and odd sizes draw without error', () => {
-  for (const [w, h] of [[1, 1], [8, 4], [9, 5], [200, 30]] as [number, number][]) {
-    const s = blackHole(1000, w, h)
-    expect(s.length).toBe(Math.max(4, h))
+test('the middle of the horizon is dark, checked without the renderer\'s own geometry', () => {
+  // A fixed block in the middle of the dome, a few pixels clear of the arc and of the disk, in every frame.
+  const blocks: Record<'medium' | 'large', [number, number, number, number]> = { medium: [20, 8, 23, 11], large: [29, 11, 34, 16] }
+  for (const size of ['medium', 'large'] as const) {
+    const [x0, y0, x1, y1] = blocks[size]
+    const { cols } = DIMENSIONS[size]
+    let lit = 0
+    for (const f of [null, 0, 0.2, 0.4, 0.6, 0.8]) {
+      const lv = levels(drawBlackHole(size, f))
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (lv[y * cols + x] !== null) lit++
+    }
+    expect(lit).toBe(0)
   }
 })

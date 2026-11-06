@@ -15,7 +15,20 @@
 
 import { isSecretPath } from './council'
 
-export type Verdict = { ok: true; runner: string } | { ok: false; why: string }
+/** `paths` are the arguments that name a file or folder, each as written and without its test selector (test names included: whatever exists is checked): the caller resolves each through symlinks and keeps it inside the repository. */
+export type Verdict = { ok: true; runner: string; paths: string[] } | { ok: false; why: string }
+
+/** A path argument without the test selector after it (`file.py::test`, `file.rb:12`, `pkg/...`). */
+/** Names `arg` as written and, when it differs, without its selector. */
+function addPath(paths: string[], arg: string): void {
+  paths.push(arg)
+  const bare = pathOf(arg)
+  if (bare !== arg) paths.push(bare)
+}
+
+export function pathOf(arg: string): string {
+  return arg.replace(/(::|#).*$/, '').replace(/\[[^\]]*\]$/, '').replace(/:\d+(:\d+)?$/, '').replace(/\/\.\.\.$/, '').replace(/\/\*\*?$/, '') || '.'
+}
 
 /** Tests never run longer than this, whatever the agent asks for (ms). */
 export const MAX_TIMEOUT_MS = 300_000
@@ -24,8 +37,19 @@ export const DEFAULT_TIMEOUT_MS = 120_000
 /** The only tools the Test agent may call, whatever its definition lists (an MCP tool, Skill or a future tool is refused). */
 export const ALLOWED_TOOLS = ['Read', 'Glob', 'Grep', 'Bash', 'SubagentHandback'] as const
 
-/** Bash input fields that would loosen a sandbox or a permission: dropped from the call. */
-export const LOOSENING = /sandbox|dangerous|disable|unsafe|bypass/i
+/** The only fields of a Bash call that reach the engine (its identity, the command and its description); NEXUS adds the capped timeout and the foreground flag itself. */
+export const BASH_FIELDS: ReadonlySet<string> = new Set(['tool', 'agentId', 'tool_use_id', 'command', 'description'])
+
+/** The fields each read tool documents; anything else the agent sent is not passed on. */
+const IDENTITY = ['tool', 'agentId', 'tool_use_id']
+export const TOOL_FIELDS: Record<string, ReadonlySet<string>> = {
+  Read: new Set([...IDENTITY, 'file_path', 'offset', 'limit', 'pages']),
+  Glob: new Set([...IDENTITY, 'pattern', 'path']),
+  Grep: new Set([...IDENTITY, 'pattern', 'path', 'glob', 'type', 'output_mode', '-i', '-n', '-o', '-A', '-B', '-C', 'context', 'multiline', 'head_limit', 'offset']),
+}
+
+/** Bash input fields that would loosen a sandbox or a permission (or claim an approval): dropped from the call, so the agent cannot widen what it may do through the call's own fields. */
+export const LOOSENING = /sandbox|dangerous|disable|unsafe|bypass|permission|allow|approv|override|elevat|trust|skip|unrestrict/i
 
 // ---- tokenising: quotes group words; nothing is expanded --------------------------------------
 export type Word = { text: string; quoted: boolean }
@@ -33,6 +57,12 @@ export type Word = { text: string; quoted: boolean }
 /** Words of a command, or why it is not one plain command. */
 export function words(command: string): { words: Word[] } | { error: string } {
   if (/[\n\r\0]/.test(command)) return { error: 'one single-line command only' }
+  // A shell splits words on a space or a tab only. Any other control, invisible or non-ASCII character could be a different
+  // word to the shell than to this check, so the command is refused rather than read.
+  for (const ch of command) {
+    const code = ch.codePointAt(0)!
+    if (code > 126 || (code < 32 && ch !== '\t')) return { error: 'only plain ASCII characters are accepted in a test command' }
+  }
   const out: Word[] = []
   let cur = ''
   let quote: '"' | "'" | null = null
@@ -51,7 +81,7 @@ export function words(command: string): { words: Word[] } | { error: string } {
       open = true
       continue
     }
-    if (/\s/.test(ch)) {
+    if (ch === ' ' || ch === '\t') {
       if (open) out.push({ text: cur, quoted })
       cur = ''
       quoted = false
@@ -190,7 +220,7 @@ const NPX: Record<string, Spec> = {
   playwright: { lead: [['test']], flags: { '--grep': 'filter', '--reporter': 'enum:list|line|dot', '--workers': 'int', '--retries': 'int' }, positional: 'path' },
 }
 
-function check(spec: Spec, args: Word[]): string | null {
+function check(spec: Spec, args: Word[], paths: string[]): string | null {
   let rest = args
   if (spec.runScript && rest[0]?.text === 'run') {
     if (!/^test(:[\w-]+)?$/.test(rest[1]?.text ?? '')) return 'only the project’s test script is accepted (`test` or `run test[:name]`)'
@@ -230,6 +260,7 @@ function check(spec: Spec, args: Word[]): string | null {
       }
       const bad = valueProblem(kind, value, name)
       if (bad) return bad
+      if (kind === 'path') addPath(paths, value)
       continue
     }
     if (spec.goals) {
@@ -239,9 +270,13 @@ function check(spec: Spec, args: Word[]): string | null {
     }
     if (spec.positional !== 'path') return `${w.slice(0, 40)}: this command takes no extra words`
     // A positional word: a path or a test name. Quoting may carry spaces and brackets (a test id); nothing else.
-    if (rest[i]!.quoted && /^[A-Za-z0-9_.@%+=,:/ [\]#-]{1,200}$/.test(w) && !/(^|\/)\.\.(\/|$)/.test(w) && !pathProblem(w.replace(/[ [\]#]/g, '_'))) continue
+    if (rest[i]!.quoted && /^[A-Za-z0-9_.@%+=,:/ [\]#-]{1,200}$/.test(w) && !/(^|\/)\.\.(\/|$)/.test(w) && !pathProblem(w.replace(/[ [\]#]/g, '_'))) {
+      addPath(paths, w)
+      continue
+    }
     const bad = pathProblem(w)
     if (bad) return bad
+    addPath(paths, w)
   }
   if (spec.goals && goals === 0) return `name the target: ${spec.goals.map(g => `\`${g}\``).join(' or ')}`
   return null
@@ -261,6 +296,7 @@ export function judgeCommand(command: unknown): Verdict {
   if (ws[0]!.quoted) return { ok: false, why: 'the command name itself cannot be quoted' }
   let why: string | null
   let runner = head
+  const paths: string[] = []
   if (head === 'npx') {
     // npx can download and run a package: only with --no-install, and only a known runner.
     if (ws[1]?.text !== '--no-install' && ws[1]?.text !== '--no') return { ok: false, why: 'npx can download code: use `npx --no-install <runner>` or `npm test`' }
@@ -268,23 +304,23 @@ export function judgeCommand(command: unknown): Verdict {
     const spec = NPX[r]
     if (!spec) return { ok: false, why: `npx --no-install ${r || '…'} is not a known test runner` }
     runner = `npx ${r}`
-    why = check(spec, ws.slice(3))
+    why = check(spec, ws.slice(3), paths)
   } else if (head === 'python' || head === 'python3' || head === 'py') {
     const mod = ws[1]?.text === '-m' ? ws[2]?.text : undefined
     if (mod !== 'pytest' && mod !== 'unittest') return { ok: false, why: 'only `-m pytest` or `-m unittest`' }
     runner = `${head} -m ${mod}`
-    why = check(mod === 'pytest' ? PYTEST : UNITTEST, ws.slice(3))
+    why = check(mod === 'pytest' ? PYTEST : UNITTEST, ws.slice(3), paths)
   } else if (head === 'bundle') {
     const target = BUNDLE[ws[2]?.text ?? '']
     if (ws[1]?.text !== 'exec' || !target) return { ok: false, why: 'only `bundle exec rspec` or `bundle exec rake test`' }
     runner = `bundle exec ${target}`
-    why = check(RUNNERS[target]!, ws.slice(3))
+    why = check(RUNNERS[target]!, ws.slice(3), paths)
   } else {
     const spec = RUNNERS[head]
     if (!spec) return { ok: false, why: `\`${head}\` is not a known test command (npm/pnpm/yarn test, pytest, go test, cargo test, vitest run, jest, make test, claude plugin test…)` }
-    why = check(spec, ws.slice(1))
+    why = check(spec, ws.slice(1), paths)
   }
-  return why ? { ok: false, why } : { ok: true, runner }
+  return why ? { ok: false, why } : { ok: true, runner, paths }
 }
 
 /** The timeout the call will run with: the agent's own, never over the cap, never none. */
@@ -312,4 +348,26 @@ export function reportLine(label: string, rep: Report): string {
   if (rep.result === null) return `${label} finished · no result line in its report`
   const counts = [rep.failed !== null ? `${rep.failed} failed` : null, rep.passed !== null ? `${rep.passed} passed` : null, rep.skipped ? `${rep.skipped} skipped` : null].filter(Boolean)
   return `${label} ${rep.result}${counts.length ? ` · ${counts.join(', ')}` : ''}`
+}
+
+// ---- Glob patterns -------------------------------------------------------------------------------
+const GLOB_SPECIAL = '{}(),|!@+*?[]'
+/**
+ * Whether a Glob pattern can name a place outside the repository on its own. The pattern is split into the literal
+ * runs between glob characters; a run that starts a path (the pattern's start, or right after `{ ( , |`) may not begin
+ * with `/` or `~`, and no run may hold a `..` part. Checking the runs, not a list of spellings, means a new glob
+ * syntax cannot hide one.
+ */
+export function globReachesOutside(pattern: string): boolean {
+  let run = ''
+  let before = '^'
+  const outside = () => ((before === '^' || '{(,|'.includes(before)) && (run.startsWith('/') || run.startsWith('~'))) || run.split('/').includes('..')
+  for (const ch of pattern) {
+    if (GLOB_SPECIAL.includes(ch)) {
+      if (outside()) return true
+      run = ''
+      before = ch
+    } else run += ch
+  }
+  return outside()
 }

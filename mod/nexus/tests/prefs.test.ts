@@ -119,6 +119,10 @@ test('settings are in four sections with plain labels and a stated default', () 
   expect(SETTINGS.find(s => s.key === 'theme')!.kind).toBe('display')
   expect(SETTINGS.filter(s => s.section === 'appearance').every(s => s.kind === 'display')).toBe(true)
   expect(SETTINGS.filter(s => s.section === 'usage').every(s => s.kind === 'display')).toBe(true)
+  // The Agents section is the one place for what agents may do, and holds nothing that is only display.
+  expect(SETTINGS.filter(s => s.section === 'agents').every(s => s.kind === 'behavior')).toBe(true)
+  // Appearance holds one layout-like setting (width), not two.
+  expect(SETTINGS.filter(s => s.section === 'appearance').map(s => s.key)).not.toContain('layout')
 })
 
 test('reset: one section returns to defaults and leaves the others; a full reset needs the caller', () => {

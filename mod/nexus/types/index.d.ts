@@ -66,6 +66,12 @@ export type NexusAgent = {
   /** totalTokens as the Agent tool's result reported it, when it did. */
   reportedTokens: number | null
   toolUseId: string | null
+  /** When the Agent tool's result for this instance was handed back to the lead (a foreground run only). Handed back, not "read by the model". */
+  returnedAt?: number | null
+  /** How it came back: a normal result, or an error result. */
+  returnKind?: 'ok' | 'error' | null
+  /** The session id this record was made in; a record from another session draws no connection. */
+  session?: string | null
 }
 
 /** What $.session.usage() last said, and when it was read. */
@@ -83,7 +89,7 @@ export type Usage = {
   compactions: number
 }
 
-/** `settings` uses `ref` for the open section (null = the menu); `activity` is the full tape. */
+/** `settings` uses `ref` for the open section (null = the menu); `activity` is the full tape, and its `ref` is the tape filter (null = all; reopening the tape resets it). */
 export type View = { kind: 'diagram' | 'agent' | 'settings' | 'usage' | 'cache' | 'activity'; ref: string | null }
 
 export type JevDecision = {
@@ -147,7 +153,7 @@ export type Mode = {
 }
 
 export type Fx = {
-  kind: 'advisor' | 'spawn' | 'done' | 'jev' | 'mode' | 'route' | 'beat' | 'council-out' | 'council-back' | 'council-fail'
+  kind: 'advisor' | 'spawn' | 'done' | 'return' | 'jev' | 'mode' | 'route' | 'beat' | 'council-out' | 'council-back' | 'council-fail'
   at: number
   ms: number
   /** The agent id, Jev question, ... the effect belongs to. */
@@ -160,6 +166,10 @@ export type LogRow = {
   kind: 'start' | 'done' | 'error' | 'advisor' | 'mode' | 'jev' | 'info'
   text: string
   detail: string
+  /** The agent this row is about, when it is about one (an id NEXUS was given, never a name). */
+  ref?: string
+  /** 'out': a delegation the lead made (confirmed by the Agent call's tool_use_id); 'back': its result handed back to the lead. */
+  flow?: 'out' | 'back'
 }
 
 export type TelemetryPreset = 'minimal' | 'standard' | 'full' | 'custom'
@@ -190,6 +200,8 @@ export type Prefs = {
   theme: 'classic' | 'orbit'
   /** Orbit's lead graphic: the black hole, the original orbit, or none. */
   centerpiece: 'blackhole' | 'classic' | 'off'
+  /** Orbit only: draw the connections between the lead and the advisor, Council and subagents. Display only. */
+  agentLinks: boolean
   /** Orbit's ambient animation pace. */
   animationSpeed: 'slow' | 'veryslow'
   /** Orbit's padding: comfortable breathes, compact fits more. */

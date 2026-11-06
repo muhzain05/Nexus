@@ -2,7 +2,7 @@
 // full activity tape. Classic's views stay in views.tsx and are untouched.
 import { ON_WARNING } from './council'
 import { clock, pad } from './format'
-import { O, fitLine, header, keysLine, orbitLines, tapeRows } from './orbitlayout'
+import { O, TAPE_FILTERS, evidenceOf, filterTape, fitLine, header, keysLine, orbitLines, tapeLabel, tapeRows } from './orbitlayout'
 import type { Line } from './orbitlayout'
 import { SECTIONS, SETTINGS, defaultValue, prefValue, visibility } from './prefs'
 import type { SectionId, Setting } from './prefs'
@@ -233,21 +233,40 @@ export function OrbitSettings({ el, s, act, width }: { el: El; s: Snapshot; act:
 // ---- activity ---------------------------------------------------------------------------------
 function ActivityView({ el, s, act, width }: { el: El; s: Snapshot; act: Actions; width: number }) {
   const { Box, Text } = el
-  const rows = tapeRows(s.log).slice(-40).reverse()
+  const filter = s.view.ref && (TAPE_FILTERS as readonly string[]).includes(s.view.ref) ? s.view.ref : 'all'
+  // With connections off the tape is what it was before them: the hand-back rows belong to the connections.
+  const all = tapeRows(s.prefs.agentLinks ? s.log : s.log.filter(r => r.flow !== 'back'))
+  const rows = filterTape(all, filter).slice(-40).reverse()
+  const { Button } = el
+  const links = s.prefs.agentLinks
   return (
     <Box flexDirection="column" width={width}>
-      <Rows el={el} lines={[[seg('Activity', O.fg, true), seg(`   ${rows.length} events · newest first`, O.dim)], [{ t: '─'.repeat(width), c: O.faint }]]} id="av" />
-      {rows.length === 0 && <Text color={O.dim}>nothing yet</Text>}
-      {rows.map((r, i) => (
-        <Box key={`ev-${i}`} flexDirection="column">
-          <Text>
-            <Text color={O.dim}>{clock(r.at)}  </Text>
-            <Text color={O.soft}>{pad(r.who, 8)}</Text>
-            <Text color={r.kind === 'error' ? O.red : O.fg}>{r.text}</Text>
-          </Text>
-          {r.detail ? <Text color={O.dim}>{'                      '}{r.detail}</Text> : null}
+      <Rows el={el} lines={[[seg('Activity', O.fg, true), seg(`   ${rows.length} of ${all.length} events · ${filter} · newest first`, O.dim)], [{ t: '─'.repeat(width), c: O.faint }]]} id="av" />
+      {Button && act.isFocused && act.filter ? (
+        <Box flexWrap="wrap" columnGap={2} width={width}>
+          {TAPE_FILTERS.map((f, i) => (
+            <Button key={`flt-${f}`} hotkey={String(i + 1)} label={f} plain dimColor={f !== filter} onPress={() => act.filter?.(f)} />
+          ))}
         </Box>
-      ))}
+      ) : (
+        <Text color={O.dim}>filter: {TAPE_FILTERS.join(' · ')} (focus the pane, then 1-6)</Text>
+      )}
+      {rows.length === 0 && <Text color={O.dim}>{all.length === 0 ? 'nothing yet' : `no ${filter} events`}</Text>}
+      {rows.map((r, i) => {
+        const l = tapeLabel(r)
+        const evidence = links ? evidenceOf(r, s.agents) : ''
+        return (
+          <Box key={`ev-${i}`} flexDirection="column">
+            <Text>
+              <Text color={O.dim}>{clock(r.at)}  </Text>
+              <Text color={links ? l.colour : O.soft}>{pad(links ? l.label : r.who, links ? 16 : 8)}</Text>
+              <Text color={r.kind === 'error' ? O.red : O.fg}>{r.text}</Text>
+            </Text>
+            {r.detail ? <Text color={O.dim}>{'                      '}{r.detail}</Text> : null}
+            {evidence ? <Text color={O.faint}>{'                      '}{evidence}</Text> : null}
+          </Box>
+        )
+      })}
       <Text> </Text>
       <Back el={el} act={act} />
     </Box>

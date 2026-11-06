@@ -544,6 +544,24 @@ test('background: an async launch is not read as an answer; each completion noti
   expect(await councilCall($, { summary: 'next', selection: 'all' })).toMatch(/authorized/)
 })
 
+test('background: a reviewer\'s hand-back at column zero is settled by the Council only: it is not also marked returned as a Haiku agent', async ($, on) => {
+  const writes: Record<string, any> = {}
+  on('state.set', ($$, e: any, next) => {
+    if (e.plugin === 'nexus') writes[String(e.key)] = e.value && typeof e.value === 'object' && 'shape' in e.value ? e.value.value : e.value
+    return next(e)
+  })
+  const { ids } = await launchBackground($, on)
+  await $.tool.call({ tool: 'SubagentHandback', agentId: ids.security, message: ANSWER() } as any)
+  const frame = `Another Claude session sent a message:\n<agent-message from="${ids.security}">\n[Subagent hand-back] The report follows:\n  Reviewed.\n</agent-message>`
+  const note = await ctx($.prompt.submit({ text: frame, origin: { kind: 'peer' }, isMeta: true } as any))
+  expect(note).toMatch(/checkpoint #\d+: SECURITY done\. Waiting for architecture, performance/)
+  const list = (writes.agents ?? []) as any[]
+  expect(list.some(a => a.id === ids.security)).toBe(false) // a reviewer is never a Haiku card, so there is nothing to mark
+  expect(list.filter(a => a.returnedAt != null)).toEqual([])
+  expect(((writes.log ?? []) as any[]).filter(r => r.flow === 'back')).toEqual([])
+  expect(((writes.fx ?? []) as any[]).filter(f => f.kind === 'return')).toEqual([])
+})
+
 test('background: every reviewer stopped before it answered: INCOMPLETE, not marked reviewed, the next review is allowed', async ($, on) => {
   const { ids } = await launchBackground($, on)
   for (const id of Object.values(ids)) await ended($, id, '', true)

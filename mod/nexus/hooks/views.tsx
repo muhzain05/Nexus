@@ -29,6 +29,8 @@ export type Actions = {
   reset: (what: string) => void
   /** Opens the full activity tape. */
   activity: () => void
+  /** Narrows the full activity tape to one kind of event (Orbit only). */
+  filter?: (name: string) => void
   isFocused: boolean
 }
 
@@ -52,6 +54,8 @@ export type Snapshot = {
   isMono?: boolean
   /** A width the person set by hand, which Claude Code keeps over any request. */
   keptWidth?: number | null
+  /** This session's id, when the engine gave one: a record made in another session draws no connection. */
+  session?: string | null
   now: number
 }
 

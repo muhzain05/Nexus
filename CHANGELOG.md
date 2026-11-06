@@ -1,5 +1,46 @@
 # Changelog (NEXUS)
 
+## Unreleased (next): Orbit shows how work moves
+Orbit stops being separate status boxes: the lead, advisor, Council, Jev and subagents are connected by marks that follow real events. Stacked on the unreleased 0.8.1 fixes; the version number is left for the release.
+
+### Added
+- **Agent connections** (Appearance → *Show agent connections*, on by default in Orbit, display only). A thin line from the lead's edge to the advisor and to each Council reviewer (a short line down into them in a stacked layout), and a mark in each subagent row: `▸` given its task, `◂` result handed back. Done, failed and cancelled keep the state glyph (failures never get a celebratory pulse). Jev shows `◇ observed` for a moment after a choice and is never drawn as an arrow. Idle shows only faint structure; nothing moves without an event. Reduced motion shows the arrival at once.
+- **Activity tape.** Delegations read `SONNET→TEST` and handed-back results `SONNET←TEST`, only for rows the data confirmed; a source column and state symbols; the full tape filters by kind and shows what backs each event.
+- **Flow model** (`hooks/flow.ts`): pure and derived from the records NEXUS already keeps, so the tape and the connections cannot disagree and there is no new timer or stored state.
+
+### Correctness fixes found while building it
+- A subagent that stopped and was then reported as failed or cancelled **now shows as failed or cancelled** (the generic stop report carries no outcome, and used to win if it came first). A finished run never returns to running.
+- A repeated spawn for a known agent no longer resets a finished record; a new delegation to the same id replaces it and is labelled correctly.
+- An agent that is continued (a new Agent call for a finished agent's id, or the same id again with no call id) **shows as running again** with a fresh record, and its earlier hand-back no longer counts for the new run; a late failure after a stop adds one tape row, not a second completion pulse.
+- A foreground result is recorded as *handed back*; a background launch is not (nothing has come back yet). A background agent is marked when the engine's completion notice arrives, or when its hand-back message is delivered *after we saw it call `SubagentHandback`* (the engine frames the message at column zero and indents the sender's words, so the frame names the real sender; an interim message from a running agent does not count). Found in live validation: in a default interactive session every Agent call runs in the background and returns by hand-back message, so without this the return half never showed.
+- **Jev** shows `◇ observed` only for a choice it made, not for an abstention (found live).
+- **The Test agent's Bash gate** no longer adds `run_in_background: false` to a call that did not send it: in setups where background tasks are disabled the engine has no such parameter and rejected every test run (found live). When the agent does send it, it is still forced off.
+- **Show agent connections: off** now also hides the new hand-back rows from the tape, so Off looks as before.
+- Records are tagged with their session; a record from another session draws no connection.
+
+### Provenance and limits
+- Directly observed: the delegation (the Agent call's id on both ends), the start, progress, finish, failure, cancellation, the hand-back of a foreground result, a background completion notice, an advisor consultation (one event), Council reviewer lifecycle, and a Jev answer.
+- Cannot be determined, so not drawn: timeouts, nesting between subagents, whether the model read a result, which action an advisor reply or Jev choice shaped, and (from NEXUS code alone) whether the session id stays the same across a reload, compaction or resume, so a record whose session differs just draws no connection.
+- **Black hole.** Refined toward an amber halftone reference: a single amber hue, sparser dots, a thinner dome. Sizes, placement, animation and teardown are unchanged.
+
+### Reviewed and validated
+- **Council ran twice on the final code**: two checkpoints (the flow, records and layout; then the art plus the fixes made after the first).
+  - **Security:** no vulnerabilities in either. One info note: hand-back detection relies on the engine writing its message frame at column zero and indenting the sender's words; display only, nothing gates on it.
+  - **Architecture:** findings fixed (a reused agent id, a hand-back counted once, one pulse on a late failure, advisor panel built once). One HIGH in the second checkpoint was a scope artifact: the reviewer read a test at its older version, and the test at the tip is already updated. Two lows: a comment (fixed) and a duplicated disk-row predicate in test-support code (left).
+  - **Performance:** no blocking findings.
+  - The last edits after the final review are two comments, no logic.
+- **Live validation:** two passes in real Claude Code 2.1.318 sessions (emulated terminal, not OS screenshots). Found and fixed: returns never showing in default (background) sessions, Jev `observed` on an abstention, an advisor pulse that pointed down, Off not hiding new rows, and the Test agent's Bash call rejected where background tasks are disabled. Every one of the ten steps was produced live (Council and advisor needed a child-session workaround: the advisor must be consulted in the same turn before `council_review` is authorized).
+  - Not covered: an abstention was never triggered live; flashes shorter than 0.4 s cannot be seen at the snapshot rate.
+- **Performance:** `orbitLines` mean per call 106–280 µs at 62–120 columns, at most 1.10x the previous build with connections on and 1.02x off; text elements per frame 388–725; art runs per frame at most 86 / 176 / 285 (small / medium / large).
+
+### Tests
+- Tests: 371 → **458** (87 new since the 0.8.1 branch). Last full run: 458 pass, 0 fail, 26 files, type-check clean.
+
+### Known limits
+- The inline log band under the chat (not Orbit's) still prints the hand-back event text when connections are off.
+- Whether the session id survives every reload, compaction or resume cannot be known from NEXUS code. Observed live: `/compact` kept the records, `/clear` starts an empty dashboard.
+- The amber halftone art is coarser than the reference (44 or 64 pixels wide against a 644 px image).
+
 ## 0.8.1 (unreleased): Orbit, corrected
 A corrective release, not new features. The 0.8.0 black hole did not look like the approved reference, the dashboard's balance was off, and several things had only been checked on sample data. Everything below was also run in a **live Claude Code 2.1.318 session** (screens and measurements in `mod/nexus/docs/screenshots/live-*`).
 

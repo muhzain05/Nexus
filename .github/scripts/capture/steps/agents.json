@@ -1,0 +1,4 @@
+[ {"name":"trust-dialog","wait_for":"Yes, I trust this folder","timeout":5,"skip_if_missing":true,"keys":"\u001b[B\r","hold":0.5}, {"name":"boot","wait_for":"Try \"","timeout":40,"hold":3},
+ {"name":"width","send":"/nexus width 84","hold":2.5},
+ {"name":"delegate","send":"Run two agents in parallel: nexus-search finds where SUPERSAMPLE is defined, nexus-grep lists every file that uses PALETTE. Report both in one line each.","key_delay":0.03,"wait_until":"(?s)search#1.*done in.*grep#1.*done in|grep#1.*done in.*search#1.*done in","timeout":150,"hold":1},
+ {"name":"settle","required":false,"wait_until":"result returned","timeout":30,"hold":4} ]

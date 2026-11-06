@@ -1,0 +1,5 @@
+[ {"name":"trust-dialog","wait_for":"Yes, I trust this folder","timeout":5,"skip_if_missing":true,"keys":"\u001b[B\r","hold":0.5}, {"name":"boot","wait_for":"Try \"","timeout":40,"hold":3},
+ {"name":"width","send":"/nexus width 84","hold":2.5},
+ {"name":"focus","keys":"\u0018\t","hold":1.5},
+ {"name":"menu","keys":"s","hold":2.5},
+ {"name":"agents","keys":"2","hold":2.5} ]

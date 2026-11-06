@@ -8,9 +8,9 @@
 
 [Install](#install) · [Quick start](#quick-start) · [Orbit](#orbit) · [Agents](#agents) · [Settings](#settings-and-telemetry) · [Commands](#commands) · [Docs](#documentation)
 
-<img src="mod/nexus/docs/media/orbit-live.gif" alt="A real Claude Code session with the NEXUS Orbit pane: two Haiku subagents (search and grep) start in parallel, Jev routes a tool choice, the activity tape fills in, and the agents finish" width="55%">
+<img src="mod/nexus/docs/media/orbit-live.gif" alt="A real Claude Code session with the NEXUS Orbit pane docked beside it: the Sonnet lead delegates a repository search to a Haiku Search agent, the delegation and the returned result appear as connections and on the activity tape, and the dashboard settles idle with the answer, blackhole.ts line 72" width="880">
 
-<sub>The Orbit pane in a **real Claude Code 2.1.318 session**, docked beside the conversation, while two Haiku subagents run. Frames are screens captured from the live terminal about 1.6 seconds apart (so the black hole's slow drift looks jumpy here, and is smooth in the terminal); the numbers are the session's own. <a href="mod/nexus/docs/screenshots/live-pane-80.png">Full-size still</a> · <a href="mod/nexus/docs/screenshots/blackhole-before-after.png">black hole, v0.8.0 vs v0.8.1</a></sub>
+<sub>One real turn in **Claude Code 2.1.319**, with NEXUS loaded from this repository: the Sonnet lead delegates a repository search to Haiku Search, the delegation shows on the Orbit pane, the result returns, and the activity tape records the confirmed hand-back before the dashboard settles idle. Every screen is from the live session, played at 8 frames a second (the black hole drifts slowly; the recording is trimmed to start at the first keystroke and end three seconds after the answer, and nothing in between is changed). It is an emulated 140×50 terminal, so the pane is the 63-column half-screen layout; the recording tool is [`.github/scripts/capture`](.github/scripts/capture/README.md). <a href="mod/nexus/docs/screenshots/live-flow-returned-84.png">Full-size still</a> · <a href="mod/nexus/docs/screenshots/blackhole-precision-before-after.png">black hole, before and after</a></sub>
 
 </div>
 
@@ -67,11 +67,11 @@ Orbit is the 0.8 look: near-black, thin panels with an angled corner, and a slow
 
 <table>
 <tr>
-<td width="50%"><img src="mod/nexus/docs/screenshots/live-pane-80.png" alt="Orbit in a live 84-column pane, beside the conversation"></td>
+<td width="50%"><img src="mod/nexus/docs/screenshots/live-pane-80.png" alt="Orbit in a live 85-column pane, beside the conversation"></td>
 <td width="50%"><img src="mod/nexus/docs/screenshots/live-settings-menu.png" alt="The settings menu with four sections, in a live session"></td>
 </tr>
 <tr>
-<td><sub>A live 84-column pane (half-screen).</sub></td>
+<td><sub>A live 85-column pane (about half of a 190-column terminal).</sub></td>
 <td><sub>Settings: Appearance, Agents, Usage &amp; Stats, Advanced (live).</sub></td>
 </tr>
 </table>
@@ -79,7 +79,7 @@ Orbit is the 0.8 look: near-black, thin panels with an angled corner, and a slow
 - **Animation:** Black hole (default), Classic orbit, or Off; Slow or Very slow. The black hole is a thin amber picture in three sizes that fit the pane, drawn in Unicode Braille dots; only its brightness moves, and only while work runs. **Art detail** (Auto or Simple) switches to plain `. : '` characters if your font shows boxes instead of dots. Reduced motion draws one still frame, and nothing redraws while the session is idle or the pane is closed.
 - **Agent connections:** thin lines and marks show which agent was given which task and when its result came back, drawn only from events Claude Code reported (`/nexus settings agentLinks off` hides them; display only). [How to read them](mod/nexus/docs/dashboard.md#agent-connections)
 - **Classic** is still there and unchanged: `/nexus settings theme classic`.
-- More live stills: [62 columns](mod/nexus/docs/screenshots/live-pane-60.png) · [100](mod/nexus/docs/screenshots/live-pane-100.png) · [120](mod/nexus/docs/screenshots/live-pane-120.png) · [agents running](mod/nexus/docs/screenshots/live-agents-running.png) · [Agents settings](mod/nexus/docs/screenshots/live-settings-agents.png). Agent connections, live: [result returned](mod/nexus/docs/screenshots/live-flow-returned-84.png) · [delegating](mod/nexus/docs/screenshots/live-flow-delegating-84.png) · [Council running](mod/nexus/docs/screenshots/live-flow-council-running-84.png) · [62 columns](mod/nexus/docs/screenshots/live-flow-62.png) · [120](mod/nexus/docs/screenshots/live-flow-120.png). Rendered from sample data (not live): [a failure](mod/nexus/docs/screenshots/sample-alert.png), [the Full preset](mod/nexus/docs/screenshots/sample-full-preset.png).
+- More live stills: [63 columns](mod/nexus/docs/screenshots/live-pane-60.png) · [99](mod/nexus/docs/screenshots/live-pane-100.png) · [120](mod/nexus/docs/screenshots/live-pane-120.png) · [agents running](mod/nexus/docs/screenshots/live-agents-running.png) · [Agents settings](mod/nexus/docs/screenshots/live-settings-agents.png). Agent connections, live: [result returned](mod/nexus/docs/screenshots/live-flow-returned-84.png) · [delegating](mod/nexus/docs/screenshots/live-flow-delegating-84.png) · [63 columns](mod/nexus/docs/screenshots/live-flow-62.png) · [120](mod/nexus/docs/screenshots/live-flow-120.png). Rendered from sample data (not live): [a failure](mod/nexus/docs/screenshots/sample-alert.png), [the Full preset](mod/nexus/docs/screenshots/sample-full-preset.png).
 
 ## Agents
 

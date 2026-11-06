@@ -2,7 +2,9 @@
 
 [← Back to the README](../../../README.md)
 
-<img src="screenshots/nexus-dashboard.png" alt="The NEXUS dashboard mid-turn" align="right" width="430">
+The numbered tour below is the **Classic** theme. Orbit, the default for new installs, is [further down](#orbit-the-08-look).
+
+<img src="screenshots/nexus-dashboard.png" alt="The Classic NEXUS dashboard mid-turn" align="right" width="430">
 
 **① Header.** The NEXUS mark moves for as long as a turn runs, agents included, and settles when it ends. The **⚙** opens settings.
 
@@ -24,9 +26,9 @@
 
 Orbit is the default for new installs. If you used NEXUS before 0.8 you stay on **Classic** until you choose otherwise (`/nexus settings theme orbit`); switching either way is live and changes nothing about what agents may do.
 
-![Orbit in a live 84-column pane](screenshots/live-pane-80.png)
+![Orbit in a live 85-column pane](screenshots/live-pane-80.png)
 
-<sub>A real Claude Code session, the pane about 84 columns wide.</sub>
+<sub>A real Claude Code session (Claude Code 2.1.319, an emulated 190-column terminal), the pane 85 columns wide.</sub>
 
 - **Header:** wordmark, mode, theme, the lead's state, context and Cache Guard when they are shown.
 - **Lead:** the Sonnet session. At widths where it fits, the black hole sits at the left and the model name, effort and state sit beside it; narrower, the words go under a smaller picture.
@@ -51,9 +53,9 @@ How it is made, in four stages that only hand each other what they need:
 
 Three compositions are designed separately, not one picture scaled: **small** (30×7 cells: horizon, ring, disk, arc, one lower fragment), **medium** (44×10: adds the arcs that peel off the ring and more particles) and **large** (64×14: adds a third lower fragment and the larger particles). The largest that fits is used; none is stretched. A cell's width over its height (`CELL_ASPECT`, 0.5) is the one constant that ties the picture to a font; the shapes are composed in physical units, so the horizon stays a circle.
 
-![The three sizes at real cell size](screenshots/blackhole-precision-natural.png)
+![The black hole in its three sizes (small, medium, large) at real cell size](screenshots/blackhole-precision-natural.png)
 
-![Before and after: v0.8.1, the halftone before this change, and now](screenshots/blackhole-precision-before-after.png)
+![Before and after, three panels: the chunky half-block sprite of the first 0.8.1 build, the halftone that followed it, and the final fine Braille picture](screenshots/blackhole-precision-before-after.png)
 
 Motion is slow and only changes brightness, by at most one palette step, and never above the resting frame's brightest step: a wave along the disk, a glint that travels round the ring, a slower ripple along the arcs, a gentle twinkle of the particles. As a wave passes, a bright cell dips a step and a dim one rises a step. Which dots are lit never changes, so the horizon and the silhouette are fixed. One cycle is 24 seconds (36 on *Very slow*) in 60 frames, drawn about 2.5 times a second while work runs, and not at all when the session is idle, the pane is closed or the session has ended. Reduced motion draws one still frame and runs no timer. Frames are built once per size and cached.
 
@@ -61,9 +63,9 @@ Motion is slow and only changes brightness, by at most one palette step, and nev
 
 ### Width
 
-Claude Code caps a docked pane at 45% of the terminal, so a 100-column Orbit needs a terminal about 220 columns wide; the panes in the screenshots are 62, 84, 100 and 120 columns. Three layouts: from 112 columns the lead sits beside the advisor and Council; from 68 it stacks with the advisor and Council side by side; narrower it trims. Below 40 columns, or inline, it falls back to a one-line-per-agent list. If the dashboard would be taller than the pane, the blank rows between groups go first, so the bottom is never what is cut off.
+Claude Code caps a docked pane at 45% of the terminal, so a 100-column Orbit needs a terminal about 220 columns wide; the panes in the screenshots are 63, 85, 99 and 120 columns. Three layouts: from 112 columns the lead sits beside the advisor and Council; from 68 it stacks with the advisor and Council side by side; narrower it trims. Below 40 columns, or inline, it falls back to a one-line-per-agent list. If the dashboard would be taller than the pane, the blank rows between groups go first, so the bottom is never what is cut off.
 
-![Orbit in a live 62-column pane](screenshots/live-pane-60.png)
+![Orbit in a live 63-column pane](screenshots/live-pane-60.png)
 
 ## Agent connections
 

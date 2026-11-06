@@ -1,5 +1,29 @@
 # Changelog (NEXUS)
 
+## Unreleased (next): a finer black hole
+The black hole is redrawn in Unicode Braille, thin and amber, from a supersampled scene. Stacked on the unreleased 0.8.1 fixes and on the agent-connections work (merge order: the 0.8.1 branch, then the connections branch, then this); the version number is left for the release.
+
+### Changed
+- **Braille dots, not half blocks.** A cell holds a 2 × 4 grid of dots, so a stroke is one dot thick and a lone dot reads as a point of light. The picture is a dark horizon, a ring of light on its upper edge (bright on the left shoulder, then dashes), a thin warped accretion disk, arcs that peel off the ring, one asymmetric lensed arc, a few dim, separate fragments of the ring below the disk, and particles. 3.8% / 5.2% / 6.5% of the dots are lit (large / medium / small).
+- **Scene, then sampling.** Curves are drawn at 4 times the dot grid's resolution into two fields, coverage and amplitude (`hooks/bhscene.ts`). Which dots exist comes from coverage alone, with a thinning rule so a line is one dot thick; how bright each is comes from its amplitude plus a share of a small glow (`hooks/bhsample.ts`). The glow is blurred brightness cut off at the horizon; it only brightens dots that exist, never lights one. The encoder is `hooks/braille.ts`. Occupancy and brightness are separate, so brightness can never thicken a line.
+- **Palette:** six steps of restrained amber, exact xterm-256 entries (94, 130, 137, 173, 215, 222). Snapping a truecolor ramp to the nearest 256 entry turned its two darkest steps grey and olive in Terminal.app, which Claude Code drives at 256 colours.
+- **Three compositions designed apart** (30×7, 44×10, 64×14 cells); the small one has no shoulder and one lower fragment. The aspect of a cell is one constant (`CELL_ASPECT`); shapes are composed in physical units, so the horizon is a circle at any aspect.
+- **Motion was changed, not only kept.** The wave now dips a bright cell one step and lifts a dim one one step, so no frame is brighter than the resting frame (before, a wave could lift cells above it). Changed cells per frame at large went from 5.7 to 7.3 for that reason; the old renderer changed 11.5. Still brightness only, 24 s (36 s very slow), no redraw while idle, one still frame under reduced motion, timer stopped on teardown.
+- **Without colour** (`NO_COLOR`): the same Braille dots, no colour (before: shade blocks).
+
+### Added
+- **Appearance → Art detail** (`/nexus settings artDetail auto|simple`, default auto, display only). Simple draws the same dots as `'` `.` `:` `*` for fonts without Braille.
+
+### Costs and limits
+- **First frame costs more:** building the dots takes 10-16 ms per size, and the first `frames()` call 21-25 ms, once per size when it is first drawn (before: 2-4 ms). Per-frame time is unchanged (0.197 ms vs 0.210 ms for the whole dashboard at 120 columns) and so is CPU (0.137% vs 0.136% of one core at 2.5 frames a second). The scene arrays (3.4 MB across the three sizes) are temporary.
+- Cached frames: 672 KB as JSON for all three sizes (before: 867 KB). A full redraw of the large art is 3.4 KB (before: 4.7 KB).
+- 4 times is the lowest sampling that holds: 2 times moves 20-40 dots against 8 times, 4 times moves up to 5, and 8 times costs 28-48 ms per size.
+- **Stills are browser renders, not terminal output.** The images in the docs are Chrome renders of the art in a terminal-style grid, and the live captures are an emulated terminal (pty, pyte, Maple Mono NF), not Terminal.app or kitty. Braille glyph fallback in Terminal.app and kitty (Menlo, SF Mono and MesloLGS have no Braille) is not verified from the emulator.
+- The black hole is coarser than the reference: a Braille dot is much smaller than the reference's squares, and colour is per cell, not per dot.
+
+### Tests
+- Tests: 458 → **479**. The art tests now read the drawn glyphs, not the renderer's own arrays, and a new file covers the scene, the sampler, glow, halo bounds, 2/4/8 times stability and brightness distribution. Goldens: the 23 screen goldens changed in art cells only (checked by replacing every art character with a placeholder); the three hole goldens now list the palette step per cell row. A full run under heavy machine load can hit the 5 s per-test limit (seen once, rerun passed).
+
 ## Unreleased (next): Orbit shows how work moves
 Orbit stops being separate status boxes: the lead, advisor, Council, Jev and subagents are connected by marks that follow real events. Stacked on the unreleased 0.8.1 fixes; the version number is left for the release.
 

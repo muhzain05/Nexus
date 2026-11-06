@@ -204,6 +204,8 @@ export type Prefs = {
   agentLinks: boolean
   /** Orbit's ambient animation pace. */
   animationSpeed: 'slow' | 'veryslow'
+  /** Orbit's black-hole artwork: auto draws it in Braille dots; simple draws the same dots as ' . : * for fonts without Braille. Display only. */
+  artDetail: 'auto' | 'simple'
   /** Orbit's padding: comfortable breathes, compact fits more. */
   density: 'comfortable' | 'compact'
   /** auto picks by pane width; full falls back when the pane is too narrow. */

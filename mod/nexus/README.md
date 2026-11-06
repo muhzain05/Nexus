@@ -18,9 +18,9 @@ Watch your lead model, its Haiku subagents, the advisor and the Jev router work,
 <br>
 
 <div align="center">
-<img src="docs/media/nexus-demo.gif" alt="A real turn at 1080p: two Haiku agents run in parallel, finish, and the advisor is consulted" width="100%">
+<img src="docs/media/nexus-demo.gif" alt="A real turn at 1080p in the Classic theme: two Haiku agents run in parallel, finish, and the advisor is consulted" width="100%">
 <br>
-<sub>A real turn, recorded live at 1920×1080 and played at 1.6× speed: two Haiku agents run side by side, finish, and the Opus advisor is consulted. Nothing on screen is simulated.<br><a href="docs/media/nexus-demo-1080p.mp4"><b>▶ Watch the full 1080p video</b></a></sub>
+<sub>A real turn, recorded live at 1920×1080 and played at 1.6× speed: two Haiku agents run side by side, finish, and the Opus advisor is consulted. Nothing on screen is simulated. This is the **Classic** theme as it was before 0.8 (still available with <code>/nexus settings theme classic</code>); <b>Orbit</b>, the default for new installs, is shown in the <a href="../../README.md#orbit">main README</a>.<br><a href="docs/media/nexus-demo-1080p.mp4"><b>▶ Watch the full 1080p video</b></a></sub>
 </div>
 
 <br>
@@ -68,7 +68,9 @@ New to it? `/nexus-about` explains everything in the terminal, and `/nexus-help`
 
 ## A tour of the dashboard
 
-<img src="docs/screenshots/nexus-dashboard.png" alt="The NEXUS dashboard mid-turn" align="right" width="430">
+This tour walks through the **Classic** theme. Orbit, the default for new installs, has the same information in thin panels with a black hole for the lead: see [Orbit](../../README.md#orbit) and [the dashboard guide](docs/dashboard.md#orbit-the-08-look).
+
+<img src="docs/screenshots/nexus-dashboard.png" alt="The Classic NEXUS dashboard mid-turn" align="right" width="430">
 
 **① Header.** The NEXUS mark moves for as long as a turn runs, agents included, and settles when it ends. The **⚙** opens settings.
 

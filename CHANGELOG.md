@@ -32,6 +32,11 @@ The black hole is redrawn in Unicode Braille, thin and amber, from a supersample
 ### Tests
 - Tests: 458 → **479**. The art tests now read the drawn glyphs, not the renderer's own arrays, and a new file covers the scene, the sampler, glow, halo bounds, 2/4/8 times stability and brightness distribution. Goldens: the 23 screen goldens changed in art cells only (checked by replacing every art character with a placeholder); the three hole goldens now list the palette step per cell row. A full run under heavy machine load can hit the 5 s per-test limit (seen once, rerun passed).
 
+### Docs
+- **The README demo and live stills show the current black hole.** `orbit-live.gif` and the `live-*` stills still showed the 0.8.1 half-block sprite, because they were captured before the Braille renderer. They are regenerated from real Claude Code 2.1.319 sessions: the GIF is one real turn (Sonnet delegates a search to Haiku Search, the result returns, the tape records the hand-back), in a 140-column terminal, so its pane is the 63-column half-screen layout. Captions give the measured pane widths (63, 85, 99, 120 columns; Claude Code gives the pane about 45% of the terminal).
+- **The capture tool is in the repository** (`.github/scripts/capture`): a pty and terminal-emulator recorder, a renderer that draws Braille as dots, and `make.py`, which runs the scenes and renders every image by rules about what is on screen. It audits every recorded frame for the home path, user name, emails and tokens before writing anything.
+- The two sample-data images (`sample-alert`, `sample-full-preset`) are drawn from the test fixtures by the current layout code and are labelled as not live. The Classic-theme captures in the plugin README and the dashboard guide are now labelled as Classic. The *Council running* still was removed from the README: it showed the old hole, and a new one needs three real Opus reviews.
+
 ## Unreleased (next): Orbit shows how work moves
 Orbit stops being separate status boxes: the lead, advisor, Council, Jev and subagents are connected by marks that follow real events. Stacked on the unreleased 0.8.1 fixes; the version number is left for the release.
 
